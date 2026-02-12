@@ -8,4 +8,4 @@ services:
     ports:
       - "8002:8002"
     volumes:
-      - ./data:/app/data:ro
+      - ./data:/app/data
