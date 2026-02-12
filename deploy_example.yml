@@ -1,0 +1,120 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Deploy to VM
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USERNAME: ${{ secrets.VM_USERNAME }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          # Create deploy directory
+          ssh -i ~/.ssh/deploy_key $VM_USERNAME@$VM_HOST "mkdir -p ~/aml-eval"
+
+          # Sync the repository
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '__pycache__' \
+            --exclude '.env' \
+            --exclude '*.pyc' \
+            --exclude '.pytest_cache' \
+            --exclude '.ruff_cache' \
+            --exclude 'frontend/node_modules' \
+            --exclude 'frontend/dist' \
+            --exclude '*.db' \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            ./ $VM_USERNAME@$VM_HOST:~/aml-eval/
+
+          # Deploy on VM
+          ssh -i ~/.ssh/deploy_key $VM_USERNAME@$VM_HOST 'bash -s' << 'ENDSSH'
+            set -e
+            cd ~/aml-eval
+
+            # Create .env file
+            cat > .env << 'EOF'
+          OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY=${{ secrets.ANTHROPIC_API_KEY }}
+          ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
+          SECRET_KEY=${{ secrets.SECRET_KEY }}
+          SEED_DATABASE=true
+          EOF
+
+            echo "=== Docker version ==="
+            docker --version
+
+            # Check if docker-compose works
+            if ! docker-compose --version 2>/dev/null; then
+              echo "Installing docker-compose..."
+              ARCH=$(uname -m)
+              [ "$ARCH" = "aarch64" ] && COMPOSE_ARCH="linux-aarch64" || COMPOSE_ARCH="linux-x86_64"
+              sudo curl -SL "https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$COMPOSE_ARCH" -o /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+            fi
+            echo "docker-compose version: $(docker-compose --version)"
+
+            # Check if buildx 0.17+ is available (required by docker-compose v5)
+            BUILDX_VERSION=$(docker buildx version 2>/dev/null | grep -oP '[\d.]+' | head -1 || echo "0")
+            echo "Current buildx version: $BUILDX_VERSION"
+            if [ "$(printf '%s\n' "0.17.0" "$BUILDX_VERSION" | sort -V | head -n1)" != "0.17.0" ]; then
+              echo "Upgrading docker buildx to 0.17.1..."
+              ARCH=$(uname -m)
+              [ "$ARCH" = "aarch64" ] && BUILDX_ARCH="linux-arm64" || BUILDX_ARCH="linux-amd64"
+              mkdir -p ~/.docker/cli-plugins
+              curl -SL "https://github.com/docker/buildx/releases/download/v0.17.1/buildx-v0.17.1.$BUILDX_ARCH" -o ~/.docker/cli-plugins/docker-buildx
+              chmod +x ~/.docker/cli-plugins/docker-buildx
+              echo "Upgraded buildx to: $(docker buildx version)"
+            fi
+
+            echo "=== Stopping existing containers ==="
+            docker-compose -f docker-compose.demo.yml down || true
+
+            echo "=== Building and starting containers (DEMO mode) ==="
+            docker-compose -f docker-compose.demo.yml up -d --build
+
+            echo "=== Waiting for startup ==="
+            sleep 15
+
+            echo "=== Container status ==="
+            docker-compose -f docker-compose.demo.yml ps
+
+            echo "=== Container logs (last 20 lines) ==="
+            docker-compose -f docker-compose.demo.yml logs --tail=20
+          ENDSSH
+
+      - name: Health check
+        run: |
+          echo "Waiting for services to fully start..."
+          sleep 60
+          echo "Checking frontend..."
+          curl -sf https://jeffborowitz.com/aml_app/health && echo "Frontend OK" || echo "Frontend health check failed"
+          echo "Checking API..."
+          curl -sf https://jeffborowitz.com/aml_app/api/v1/health && echo "API OK" || echo "API health check failed (may be expected if auth required)"
+
+      - name: Seed eval demo data
+        env:
+          ADMIN_PASSWORD: ${{ secrets.ADMIN_PASSWORD }}
+        run: |
+          # Seed eval demo data with proper case_id references
+          # This must run AFTER the API is up since it uses HTTP
+          pip install requests
+          python scripts/seed_eval_demo.py --base-url https://jeffborowitz.com/aml_app --domain test --fix-all || echo "Eval seeder warning (may be expected for first run)"

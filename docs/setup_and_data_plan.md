@@ -38,13 +38,13 @@ python3 scripts/generate_demo_data.py --seed 7 --statement-lines 320 --exception
 
 ## 4) VM requirements
 - Docker installed.
-- Reverse proxy route to port `8000` for path `/accounting-demo/`.
+- Reverse proxy route to port `8002` for path `/accounting-demo/`.
 - SSH key access from GitHub Actions runner.
 
 ### Example Nginx route snippet
 ```nginx
 location /accounting-demo/ {
-    proxy_pass http://127.0.0.1:8000/;
+    proxy_pass http://127.0.0.1:8002/;
     proxy_set_header Host $host;
     proxy_set_header X-Real-IP $remote_addr;
     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;

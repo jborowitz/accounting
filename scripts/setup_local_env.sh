@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+PYTHON_BIN="${PYTHON_BIN:-$(command -v python3)}"
+
 if [ ! -d ".venv" ]; then
-  python3 -m venv .venv
+  "$PYTHON_BIN" -m venv .venv
 fi
 
 source .venv/bin/activate
+echo "Using local venv base interpreter: $PYTHON_BIN"
+python --version
 python -m pip --version
 
 if python -m pip install -r requirements.txt; then

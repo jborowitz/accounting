@@ -25,8 +25,9 @@ jobs:
           VM_USERNAME: ${{ secrets.VM_USERNAME }}
           VM_DEPLOY_PATH: ${{ secrets.VM_DEPLOY_PATH }}
         run: |
-          DEPLOY_PATH="${VM_DEPLOY_PATH:-~/accounting-demo}"
-          ssh -i ~/.ssh/deploy_key "$VM_USERNAME@$VM_HOST" "mkdir -p $DEPLOY_PATH"
+          DEPLOY_PATH="${VM_DEPLOY_PATH:-/home/$VM_USERNAME/accounting-demo}"
+          echo "Deploy path: $DEPLOY_PATH"
+          ssh -i ~/.ssh/deploy_key "$VM_USERNAME@$VM_HOST" "mkdir -p '$DEPLOY_PATH'"
           rsync -avz --delete \
             --exclude '.git' \
             --exclude '__pycache__' \
@@ -43,23 +44,30 @@ jobs:
           VM_USERNAME: ${{ secrets.VM_USERNAME }}
           VM_DEPLOY_PATH: ${{ secrets.VM_DEPLOY_PATH }}
         run: |
-          DEPLOY_PATH="${VM_DEPLOY_PATH:-~/accounting-demo}"
-          ssh -i ~/.ssh/deploy_key "$VM_USERNAME@$VM_HOST" 'bash -s' << ENDSSH
+          DEPLOY_PATH="${VM_DEPLOY_PATH:-/home/$VM_USERNAME/accounting-demo}"
+          ssh -i ~/.ssh/deploy_key "$VM_USERNAME@$VM_HOST" "DEPLOY_PATH='$DEPLOY_PATH' bash -s" << 'ENDSSH'
             set -e
-            DEPLOY_PATH="${DEPLOY_PATH}"
+            echo "Remote host: $(hostname)"
+            echo "Remote user: $(whoami)"
+            echo "Remote deploy path: ${DEPLOY_PATH}"
             cd "$DEPLOY_PATH"
 
             compose_cmd() {
               if docker compose version >/dev/null 2>&1; then
                 docker compose "$@"
-              else
+              elif command -v docker-compose >/dev/null 2>&1; then
                 docker-compose "$@"
+              else
+                echo "Neither 'docker compose' nor 'docker-compose' is available"
+                exit 1
               fi
             }
 
+            docker --version
             compose_cmd -f docker-compose.demo.yml down || true
             compose_cmd -f docker-compose.demo.yml up -d --build
             compose_cmd -f docker-compose.demo.yml ps
+            compose_cmd -f docker-compose.demo.yml logs --tail=80
           ENDSSH
 
       - name: API Smoke Tests
@@ -76,4 +84,16 @@ jobs:
           echo
           echo "Demo summary: $BASE/api/v1/demo/summary"
           curl -fsSL "$BASE/api/v1/demo/summary"
+          echo
+          echo "Match summary: $BASE/api/v1/demo/match-summary"
+          curl -fsSL "$BASE/api/v1/demo/match-summary"
+          echo
+          echo "Create match run: $BASE/api/v1/demo/match-runs"
+          curl -fsSL -X POST "$BASE/api/v1/demo/match-runs"
+          echo
+          echo "Open exceptions: $BASE/api/v1/demo/exceptions?status=open&limit=5"
+          curl -fsSL "$BASE/api/v1/demo/exceptions?status=open&limit=5"
+          echo
+          echo "Policy rules list: $BASE/api/v1/demo/rules/policy"
+          curl -fsSL "$BASE/api/v1/demo/rules/policy?limit=5"
           echo

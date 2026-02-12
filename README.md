@@ -15,20 +15,61 @@ python3 scripts/generate_demo_data.py --seed 7 --statement-lines 320 --exception
 
 2. Setup local Python env (no local Docker):
 ```bash
-./scripts/setup_local_env.sh
+./scripts/ops.sh local-setup
 ```
 
-3. Run locally:
+3. Run API locally:
 ```bash
-source .venv/bin/activate
-uvicorn app.main:app --reload
+./scripts/ops.sh local-run
 ```
 
-4. Open:
-- `http://127.0.0.1:8000/`
-- `http://127.0.0.1:8000/health`
-- `http://127.0.0.1:8000/api/v1/demo/summary`
+4. In another terminal, run local smoke checks:
+```bash
+./scripts/ops.sh local-smoke
+```
 
-## Deploy
+5. Run local tests:
+```bash
+./scripts/ops.sh local-test
+```
+
+6. Optional: run a persisted match + exception flow manually:
+```bash
+curl -s -X POST http://127.0.0.1:8002/api/v1/demo/match-runs | jq
+curl -s "http://127.0.0.1:8002/api/v1/demo/exceptions?status=open&limit=5" | jq
+curl -s -X POST http://127.0.0.1:8002/api/v1/demo/exceptions/resolve \
+  -H "Content-Type: application/json" \
+  -d '{"line_id":"L-00005","resolution_action":"manual_link","resolved_bank_txn_id":"BTX-000005","resolution_note":"demo resolve"}' | jq
+```
+
+## Deploy + verify
+
+1. Verify `gh` login:
+```bash
+./scripts/ops.sh gh-login-check
+```
+If invalid, run:
+```bash
+gh auth login -h github.com
+```
+
+2. Deploy by pushing:
+```bash
+./scripts/ops.sh deploy-push
+```
+
+3. Watch deploy status/logs:
+```bash
+./scripts/ops.sh deploy-runs
+./scripts/ops.sh deploy-watch
+./scripts/ops.sh deploy-failed
+```
+
+4. Check deployed API:
+```bash
+BASE_URL="https://jeffborowitz.com/accounting-demo" ./scripts/ops.sh deploy-check
+```
+
+## Deploy workflow
 - Workflow: `.github/workflows/deploy.yml`
-- See: `docs/setup_and_data_plan.md` for VM and secret requirements.
+- Setup details: `docs/setup_and_data_plan.md`
