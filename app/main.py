@@ -8,13 +8,18 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import FileResponse
 from pydantic import BaseModel
 
 from app.matching import run_matching
 from app.persistence import (
     init_db,
     list_exceptions,
+    list_match_results,
+    list_match_runs,
     list_policy_rules,
     load_policy_overrides,
     resolve_exception,
@@ -25,8 +30,16 @@ from app.persistence import (
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = BASE_DIR / "data/demo.db"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
-app = FastAPI(title="Accounting Reconciliation Demo", version="0.1.0")
+app = FastAPI(title="Accounting Reconciliation Demo", version="0.2.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8001"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 class ResolveExceptionRequest(BaseModel):
@@ -97,7 +110,7 @@ def api_match_summary() -> JSONResponse:
 
 
 @app.post("/api/v1/demo/match-runs")
-def api_match_runs() -> JSONResponse:
+def api_create_match_run() -> JSONResponse:
     run_id = f"{datetime.now(UTC).strftime('run-%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     result = run_matching(DATA_DIR, policy_overrides=load_policy_overrides(DB_PATH))
     save_counts = save_match_run(DB_PATH, run_id, result["results"])
@@ -109,6 +122,20 @@ def api_match_runs() -> JSONResponse:
             "stored_counts": save_counts,
         }
     )
+
+
+@app.get("/api/v1/demo/match-runs")
+def api_list_match_runs(limit: int = 50) -> JSONResponse:
+    rows = list_match_runs(DB_PATH, limit=limit)
+    return JSONResponse({"rows": rows, "count": len(rows)})
+
+
+@app.get("/api/v1/demo/match-results")
+def api_match_results(status: str | None = None, limit: int = 500) -> JSONResponse:
+    if status and status not in {"auto_matched", "needs_review", "unmatched", "resolved"}:
+        raise HTTPException(status_code=400, detail="invalid status filter")
+    rows, run_id = list_match_results(DB_PATH, status=status, limit=limit)
+    return JSONResponse({"rows": rows, "count": len(rows), "run_id": run_id})
 
 
 @app.get("/api/v1/demo/exceptions")
@@ -149,76 +176,25 @@ def api_policy_rules_upsert(payload: UpsertPolicyRuleRequest) -> JSONResponse:
     return JSONResponse({"ok": True, "rule": row})
 
 
-@app.get("/", response_class=HTMLResponse)
-def homepage() -> str:
-    summary = demo_summary()
-    return f"""<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Accounting Reconciliation Demo</title>
-  <style>
-    body {{
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      margin: 0;
-      padding: 2rem;
-      background: linear-gradient(160deg, #f5f7fb 0%, #ecf2ff 100%);
-      color: #18202a;
-    }}
-    .card {{
-      background: #ffffff;
-      border-radius: 12px;
-      box-shadow: 0 8px 20px rgba(0,0,0,0.08);
-      max-width: 860px;
-      margin: 0 auto;
-      padding: 1.5rem;
-    }}
-    h1 {{ margin-top: 0; }}
-    .grid {{
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-      gap: 0.8rem;
-      margin-top: 1rem;
-      margin-bottom: 1rem;
-    }}
-    .metric {{
-      border: 1px solid #dde3ef;
-      border-radius: 8px;
-      padding: 0.7rem;
-      background: #f9fbff;
-    }}
-    .k {{ font-size: 0.8rem; color: #526071; }}
-    .v {{ font-weight: 700; font-size: 1.15rem; }}
-    code {{ background: #eef3ff; padding: 0.1rem 0.3rem; border-radius: 4px; }}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>Commission Reconciliation Demo</h1>
-    <p>Data-first MVP scaffold for carrier statement ingestion, cash matching, and exception workflows.</p>
-    <div class="grid">
-      <div class="metric"><div class="k">Statement Rows</div><div class="v">{summary["statement_rows"]}</div></div>
-      <div class="metric"><div class="k">Bank Rows</div><div class="v">{summary["bank_rows"]}</div></div>
-      <div class="metric"><div class="k">AMS Expected Rows</div><div class="v">{summary["expected_rows"]}</div></div>
-      <div class="metric"><div class="k">Case Rows</div><div class="v">{summary["case_rows"]}</div></div>
-    </div>
-    <p>API:</p>
-    <ul>
-      <li><code>/health</code></li>
-      <li><code>/api/v1/health</code></li>
-      <li><code>/api/v1/demo/summary</code></li>
-      <li><code>/api/v1/demo/match-summary</code></li>
-      <li><code>POST /api/v1/demo/match-runs</code></li>
-      <li><code>GET /api/v1/demo/exceptions</code></li>
-      <li><code>POST /api/v1/demo/exceptions/resolve</code></li>
-      <li><code>GET /api/v1/demo/rules/policy</code></li>
-      <li><code>POST /api/v1/demo/rules/policy</code></li>
-    </ul>
-  </div>
-</body>
-</html>
-"""
+# SPA catch-all: serve React app for non-API routes
+if STATIC_DIR.is_dir():
+    @app.get("/{full_path:path}")
+    def spa_catch_all(full_path: str) -> FileResponse:
+        file_path = STATIC_DIR / full_path
+        if file_path.is_file():
+            return FileResponse(file_path)
+        return FileResponse(STATIC_DIR / "index.html")
+else:
+    from fastapi.responses import HTMLResponse
+
+    @app.get("/", response_class=HTMLResponse)
+    def homepage() -> str:
+        return """<!doctype html>
+<html><body>
+<h1>Accounting Reconciliation Demo</h1>
+<p>Frontend not built yet. Run <code>cd frontend && npm run build</code> to build.</p>
+<p>API is live at <code>/api/v1/</code></p>
+</body></html>"""
 
 
 @app.on_event("startup")
