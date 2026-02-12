@@ -1,0 +1,79 @@
+name: Deploy Accounting Demo
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "${{ secrets.VM_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Sync Repo
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USERNAME: ${{ secrets.VM_USERNAME }}
+          VM_DEPLOY_PATH: ${{ secrets.VM_DEPLOY_PATH }}
+        run: |
+          DEPLOY_PATH="${VM_DEPLOY_PATH:-~/accounting-demo}"
+          ssh -i ~/.ssh/deploy_key "$VM_USERNAME@$VM_HOST" "mkdir -p $DEPLOY_PATH"
+          rsync -avz --delete \
+            --exclude '.git' \
+            --exclude '__pycache__' \
+            --exclude '.pytest_cache' \
+            --exclude '.ruff_cache' \
+            --exclude '.venv' \
+            --exclude '*.pyc' \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            ./ "$VM_USERNAME@$VM_HOST:$DEPLOY_PATH/"
+
+      - name: Remote Deploy
+        env:
+          VM_HOST: ${{ secrets.VM_HOST }}
+          VM_USERNAME: ${{ secrets.VM_USERNAME }}
+          VM_DEPLOY_PATH: ${{ secrets.VM_DEPLOY_PATH }}
+        run: |
+          DEPLOY_PATH="${VM_DEPLOY_PATH:-~/accounting-demo}"
+          ssh -i ~/.ssh/deploy_key "$VM_USERNAME@$VM_HOST" 'bash -s' << ENDSSH
+            set -e
+            DEPLOY_PATH="${DEPLOY_PATH}"
+            cd "$DEPLOY_PATH"
+
+            compose_cmd() {
+              if docker compose version >/dev/null 2>&1; then
+                docker compose "$@"
+              else
+                docker-compose "$@"
+              fi
+            }
+
+            compose_cmd -f docker-compose.demo.yml down || true
+            compose_cmd -f docker-compose.demo.yml up -d --build
+            compose_cmd -f docker-compose.demo.yml ps
+          ENDSSH
+
+      - name: API Smoke Tests
+        env:
+          HEALTHCHECK_URL: ${{ secrets.HEALTHCHECK_URL }}
+        run: |
+          BASE="${HEALTHCHECK_URL:-https://jeffborowitz.com/accounting-demo}"
+          BASE="${BASE%/}"
+          echo "Health: $BASE/health"
+          curl -fsSL "$BASE/health"
+          echo
+          echo "API health: $BASE/api/v1/health"
+          curl -fsSL "$BASE/api/v1/health"
+          echo
+          echo "Demo summary: $BASE/api/v1/demo/summary"
+          curl -fsSL "$BASE/api/v1/demo/summary"
+          echo

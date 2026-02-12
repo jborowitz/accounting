@@ -1,0 +1,11 @@
+services:
+  accounting-demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: accounting-demo
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data:ro
