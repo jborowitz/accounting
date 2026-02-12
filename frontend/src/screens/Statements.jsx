@@ -11,9 +11,53 @@ function fmt(n) {
   return n != null ? `$${Number(n).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'
 }
 
+function PdfViewer({ statementId, onClose }) {
+  const url = api.getStatementPdfUrl(statementId)
+  return (
+    <div className="fixed inset-0 z-50 flex">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      {/* Slide-out panel */}
+      <div className="relative ml-auto w-full max-w-3xl bg-white shadow-2xl flex flex-col animate-slide-in">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 bg-gray-50">
+          <div>
+            <h3 className="font-semibold text-sm">{statementId}</h3>
+            <p className="text-xs text-gray-500">Carrier Commission Statement</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <a
+              href={url}
+              download
+              className="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-50"
+            >
+              Download
+            </a>
+            <button
+              onClick={onClose}
+              className="p-1.5 text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div className="flex-1 min-h-0">
+          <iframe
+            src={url}
+            title={statementId}
+            className="w-full h-full border-0"
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Statements() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
+  const [viewingPdf, setViewingPdf] = useState(null)
 
   useEffect(() => {
     api.listStatements().then((data) => {
@@ -21,6 +65,14 @@ export default function Statements() {
       setLoading(false)
     })
   }, [])
+
+  // Close on Escape
+  useEffect(() => {
+    if (!viewingPdf) return
+    const handler = (e) => { if (e.key === 'Escape') setViewingPdf(null) }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [viewingPdf])
 
   return (
     <div>
@@ -64,14 +116,12 @@ export default function Statements() {
                   </td>
                   <td className="px-3 py-2 text-center">
                     {r.pdf_path ? (
-                      <a
-                        href={api.getStatementPdfUrl(r.statement_id)}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <button
+                        onClick={() => setViewingPdf(r.statement_id)}
                         className="inline-flex items-center px-2 py-1 text-xs font-medium text-blue-700 bg-blue-50 rounded hover:bg-blue-100"
                       >
                         View PDF
-                      </a>
+                      </button>
                     ) : (
                       <span className="text-gray-400 text-xs">—</span>
                     )}
@@ -81,6 +131,10 @@ export default function Statements() {
             </tbody>
           </table>
         </div>
+      )}
+
+      {viewingPdf && (
+        <PdfViewer statementId={viewingPdf} onClose={() => setViewingPdf(null)} />
       )}
     </div>
   )

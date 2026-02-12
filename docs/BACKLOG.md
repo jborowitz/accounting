@@ -13,7 +13,7 @@ _Prioritized against Comulate's feature set. Updated 2026-02-12._
 ## P0 — Immediate Fixes (user-reported issues)
 
 ### 0.1 Inline PDF Viewer
-**Status**: `todo` | **Effort**: S
+**Status**: `done` | **Effort**: S
 
 Clicking "View PDF" on the Statements screen downloads the file instead of displaying it. Replace with an in-app viewer:
 - Slide-out panel or modal with `<iframe>` or `<object>` embedding the PDF
