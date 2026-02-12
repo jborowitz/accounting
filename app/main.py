@@ -461,7 +461,11 @@ def api_get_statement_pdf(statement_id: str) -> FileResponse:
     pdf_path = STATEMENTS_DIR / f"{statement_id}.pdf"
     if not pdf_path.is_file():
         raise HTTPException(status_code=404, detail="PDF not found")
-    return FileResponse(pdf_path, media_type="application/pdf", filename=f"{statement_id}.pdf")
+    return FileResponse(
+        pdf_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{statement_id}.pdf"'},
+    )
 
 
 # SPA catch-all: serve React app for non-API routes
