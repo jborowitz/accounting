@@ -43,7 +43,7 @@ Clawbacks exist in seed data (11 cases with negative commission, txn_type="clawb
 ## P1 — Core Comulate Feature Parity
 
 ### 1.1 Statement Line Detail View (Side-by-Side Review)
-**Status**: `todo` | **Effort**: L
+**Status**: `done` | **Effort**: L
 
 Comulate's "wow" moment: analyst sees PDF on left, structured data on right. Build `/review/:lineId`:
 - Left panel: PDF viewer (iframe) scrolled to the relevant line
@@ -73,7 +73,7 @@ Comulate's entry point is uploading a carrier statement. Simulate this:
 - This sells the "AI parsing" story even though our demo uses pre-generated data
 
 ### 1.4 Dashboard Drill-Down Navigation
-**Status**: `todo` | **Effort**: S
+**Status**: `done` | **Effort**: S
 
 Dashboard cards are display-only. Clicking should navigate:
 - "Auto-Matched" card → Match Results filtered to auto_matched

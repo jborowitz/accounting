@@ -209,6 +209,77 @@ def api_policy_rules_upsert(payload: UpsertPolicyRuleRequest) -> JSONResponse:
     return JSONResponse({"ok": True, "rule": row})
 
 
+@app.get("/api/v1/demo/line-detail/{line_id}")
+def api_line_detail(line_id: str) -> JSONResponse:
+    """Full detail for a single statement line: statement + match + bank + AMS expected."""
+    # Statement data
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    stmt = next((r for r in stmt_rows if r["line_id"] == line_id), None)
+    if stmt is None:
+        raise HTTPException(status_code=404, detail="line_id not found")
+
+    # AMS expected data (keyed by original policy number from index)
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+    # Statement uses potentially-mutated policy; expected uses original. Match by line index.
+    line_idx = next((i for i, r in enumerate(stmt_rows) if r["line_id"] == line_id), None)
+    ams = expected_rows[line_idx] if line_idx is not None and line_idx < len(expected_rows) else None
+
+    # Match result from DB
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_result = None
+    exception_data = None
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            mr = conn.execute(
+                """SELECT line_id, policy_number, matched_bank_txn_id, confidence, status, reason
+                   FROM match_results WHERE run_id = ? AND line_id = ?""",
+                (run_id, line_id),
+            ).fetchone()
+            if mr:
+                match_result = dict(mr)
+            ex = conn.execute(
+                """SELECT * FROM exceptions WHERE run_id = ? AND line_id = ?""",
+                (run_id, line_id),
+            ).fetchone()
+            if ex:
+                exception_data = dict(ex)
+
+    # Bank transaction
+    bank_txn = None
+    if match_result and match_result.get("matched_bank_txn_id"):
+        bank_rows = _read_csv(DATA_DIR / "raw/bank/bank_feed.csv")
+        bank_txn = next((r for r in bank_rows if r["bank_txn_id"] == match_result["matched_bank_txn_id"]), None)
+
+    # Score breakdown (reconstruct from reason string)
+    score_factors = []
+    if match_result and match_result.get("reason"):
+        factor_labels = {
+            "policy_in_memo": ("Policy in Memo", 0.55),
+            "exact_amount": ("Exact Amount", 0.30),
+            "near_amount": ("Near Amount", 0.15),
+            "near_date": ("Near Date", 0.10),
+            "soft_date": ("Soft Date", 0.05),
+            "carrier_match": ("Carrier Match", 0.05),
+            "name_hint": ("Name Hint", 0.05),
+            "policy_rule_override": ("Policy Rule", 0.00),
+        }
+        for part in match_result["reason"].split(","):
+            part = part.strip()
+            if part in factor_labels:
+                label, weight = factor_labels[part]
+                score_factors.append({"key": part, "label": label, "weight": weight})
+
+    return JSONResponse({
+        "statement": stmt,
+        "ams_expected": ams,
+        "match_result": match_result,
+        "exception": exception_data,
+        "bank_transaction": bank_txn,
+        "score_factors": score_factors,
+    })
+
+
 def _read_csv(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []

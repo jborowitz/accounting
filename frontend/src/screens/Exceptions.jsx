@@ -1,4 +1,5 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from '../api/client'
 import DataTable from '../components/DataTable'
 import StatusBadge from '../components/StatusBadge'
@@ -143,7 +144,15 @@ export default function Exceptions() {
 
   const columns = useMemo(
     () => [
-      { accessorKey: 'line_id', header: 'Line ID' },
+      {
+        accessorKey: 'line_id',
+        header: 'Line ID',
+        cell: ({ getValue }) => (
+          <Link to={`/review/${getValue()}`} className="text-blue-600 hover:text-blue-800 hover:underline font-mono">
+            {getValue()}
+          </Link>
+        ),
+      },
       { accessorKey: 'policy_number', header: 'Policy #' },
       {
         id: 'type',

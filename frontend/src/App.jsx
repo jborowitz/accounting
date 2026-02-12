@@ -6,6 +6,7 @@ import Exceptions from './screens/Exceptions'
 import Rules from './screens/Rules'
 import Statements from './screens/Statements'
 import Transactions from './screens/Transactions'
+import Review from './screens/Review'
 
 const basename = import.meta.env.VITE_BASE_PATH || '/'
 
@@ -20,6 +21,7 @@ export default function App() {
           <Route path="rules" element={<Rules />} />
           <Route path="statements" element={<Statements />} />
           <Route path="transactions" element={<Transactions />} />
+          <Route path="review/:lineId" element={<Review />} />
         </Route>
       </Routes>
     </BrowserRouter>
