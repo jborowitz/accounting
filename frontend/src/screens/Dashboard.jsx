@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from 'recharts'
 import { api } from '../api/client'
 
 function Card({ label, value, accent, onClick }) {
@@ -96,6 +97,60 @@ export default function Dashboard() {
           )}
         </div>
       )}
+
+      {/* Donut chart */}
+      {runs.length > 0 && (() => {
+        const latest = runs[0]
+        const chartData = [
+          { name: 'Auto-Matched', value: latest.auto_matched || 0, color: '#22c55e' },
+          { name: 'Needs Review', value: latest.needs_review || 0, color: '#eab308' },
+          { name: 'Unmatched', value: latest.unmatched || 0, color: '#ef4444' },
+        ].filter(d => d.value > 0)
+        const total = chartData.reduce((s, d) => s + d.value, 0)
+
+        return chartData.length > 0 ? (
+          <div className="mb-6 bg-white rounded-lg border border-gray-200 p-4">
+            <h3 className="text-sm font-semibold mb-3">Match Distribution (Latest Run)</h3>
+            <div className="flex items-center gap-8">
+              <div className="w-48 h-48">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={chartData}
+                      cx="50%" cy="50%"
+                      innerRadius={50} outerRadius={80}
+                      dataKey="value"
+                      stroke="none"
+                      onClick={(entry) => {
+                        const statusMap = { 'Auto-Matched': 'auto_matched', 'Needs Review': 'needs_review', 'Unmatched': 'unmatched' }
+                        const s = statusMap[entry.name]
+                        if (s === 'needs_review') navigate('/exceptions')
+                        else if (s) navigate(`/results?status=${s}`)
+                      }}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      {chartData.map((entry, idx) => (
+                        <Cell key={idx} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value) => [`${value} lines`, '']} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex-1 space-y-2">
+                {chartData.map((d) => (
+                  <div key={d.name} className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: d.color }} />
+                    <span className="text-sm text-gray-700 flex-1">{d.name}</span>
+                    <span className="text-sm font-medium">{d.value}</span>
+                    <span className="text-xs text-gray-400 w-12 text-right">{(d.value / total * 100).toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : null
+      })()}
 
       {lastResult && (
         <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm">

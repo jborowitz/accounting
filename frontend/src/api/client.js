@@ -50,4 +50,25 @@ export const api = {
     if (counterparty) params.set('counterparty', counterparty)
     return request(`/api/v1/demo/bank-transactions?${params}`)
   },
+
+  // Audit trail
+  listAuditEvents: (entityType, entityId, limit = 200) => {
+    const params = new URLSearchParams({ limit })
+    if (entityType) params.set('entity_type', entityType)
+    if (entityId) params.set('entity_id', entityId)
+    return request(`/api/v1/demo/audit?${params}`)
+  },
+
+  // Accruals
+  getAccruals: () => request('/api/v1/demo/accruals'),
+
+  // Journal
+  getJournal: () => request('/api/v1/demo/journal'),
+  postJournal: () => request('/api/v1/demo/journal/post', { method: 'POST' }),
+
+  // Exports
+  getExportUrl: (name) => `${BASE}/api/v1/demo/exports/${name}`,
+
+  // Producers
+  getProducers: () => request('/api/v1/demo/producers'),
 }

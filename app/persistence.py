@@ -69,6 +69,19 @@ def init_db(db_path: Path) -> None:
                 max_effective_date TEXT,
                 pdf_path TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS audit_events (
+                event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                entity_type TEXT,
+                entity_id TEXT,
+                actor TEXT NOT NULL DEFAULT 'system',
+                action TEXT NOT NULL,
+                detail TEXT,
+                old_value TEXT,
+                new_value TEXT
+            );
             """
         )
 
@@ -371,4 +384,60 @@ def list_statement_metadata(db_path: Path) -> list[dict[str, Any]]:
             ORDER BY carrier_name, statement_id
             """
         ).fetchall()
+        return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Audit trail
+# ---------------------------------------------------------------------------
+
+def log_audit_event(
+    db_path: Path,
+    event_type: str,
+    action: str,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    actor: str = "system",
+    detail: str | None = None,
+    old_value: str | None = None,
+    new_value: str | None = None,
+) -> int:
+    with get_conn(db_path) as conn:
+        cur = conn.execute(
+            """
+            INSERT INTO audit_events(timestamp, event_type, entity_type, entity_id,
+                                     actor, action, detail, old_value, new_value)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (utc_now(), event_type, entity_type, entity_id, actor, action, detail, old_value, new_value),
+        )
+        return cur.lastrowid or 0
+
+
+def list_audit_events(
+    db_path: Path,
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        if entity_type and entity_id:
+            rows = conn.execute(
+                """SELECT * FROM audit_events
+                   WHERE entity_type = ? AND entity_id = ?
+                   ORDER BY event_id DESC LIMIT ?""",
+                (entity_type, entity_id, limit),
+            ).fetchall()
+        elif entity_type:
+            rows = conn.execute(
+                """SELECT * FROM audit_events
+                   WHERE entity_type = ?
+                   ORDER BY event_id DESC LIMIT ?""",
+                (entity_type, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM audit_events ORDER BY event_id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
         return [dict(row) for row in rows]

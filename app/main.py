@@ -17,12 +17,14 @@ from pydantic import BaseModel
 from app.matching import run_matching
 from app.persistence import (
     init_db,
+    list_audit_events,
     list_exceptions,
     list_match_results,
     list_match_runs,
     list_policy_rules,
     list_statement_metadata,
     load_policy_overrides,
+    log_audit_event,
     resolve_exception,
     save_match_run,
     upsert_policy_rule,
@@ -123,6 +125,11 @@ def api_create_match_run() -> JSONResponse:
     run_id = f"{datetime.now(UTC).strftime('run-%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:8]}"
     result = run_matching(DATA_DIR, policy_overrides=load_policy_overrides(DB_PATH))
     save_counts = save_match_run(DB_PATH, run_id, result["results"])
+    log_audit_event(
+        DB_PATH, event_type="match_run", action="created",
+        entity_type="match_run", entity_id=run_id,
+        detail=f"auto={save_counts['auto_matched']} review={save_counts['needs_review']} unmatched={save_counts['unmatched']}",
+    )
     return JSONResponse(
         {
             "ok": True,
@@ -190,6 +197,12 @@ def api_exceptions_resolve(payload: ResolveExceptionRequest) -> JSONResponse:
     )
     if row is None:
         raise HTTPException(status_code=404, detail="open exception not found for latest run")
+    log_audit_event(
+        DB_PATH, event_type="exception_resolved", action=payload.resolution_action,
+        entity_type="line", entity_id=payload.line_id, actor="analyst",
+        detail=payload.resolution_note,
+        old_value="open", new_value="resolved",
+    )
     return JSONResponse({"ok": True, "resolved": row})
 
 
@@ -206,6 +219,12 @@ def api_policy_rules_upsert(payload: UpsertPolicyRuleRequest) -> JSONResponse:
     if not source or not target:
         raise HTTPException(status_code=400, detail="source_policy_number and target_policy_number are required")
     row = upsert_policy_rule(DB_PATH, source, target, payload.note)
+    log_audit_event(
+        DB_PATH, event_type="rule_created", action="upsert",
+        entity_type="policy_rule", entity_id=source, actor="analyst",
+        detail=f"Map {source} → {target}",
+        new_value=target,
+    )
     return JSONResponse({"ok": True, "rule": row})
 
 
@@ -270,6 +289,9 @@ def api_line_detail(line_id: str) -> JSONResponse:
                 label, weight = factor_labels[part]
                 score_factors.append({"key": part, "label": label, "weight": weight})
 
+    # Audit events for this line
+    audit = list_audit_events(DB_PATH, entity_type="line", entity_id=line_id, limit=50)
+
     return JSONResponse({
         "statement": stmt,
         "ams_expected": ams,
@@ -277,6 +299,7 @@ def api_line_detail(line_id: str) -> JSONResponse:
         "exception": exception_data,
         "bank_transaction": bank_txn,
         "score_factors": score_factors,
+        "audit_events": audit,
     })
 
 
@@ -448,6 +471,406 @@ def api_bank_transactions(
 
 
 STATEMENTS_DIR = DATA_DIR / "raw/statements"
+
+
+# ---------------------------------------------------------------------------
+# Audit trail endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/audit")
+def api_audit_events(
+    entity_type: str | None = None,
+    entity_id: str | None = None,
+    limit: int = 200,
+) -> JSONResponse:
+    rows = list_audit_events(DB_PATH, entity_type=entity_type, entity_id=entity_id, limit=limit)
+    return JSONResponse({"rows": rows, "count": len(rows)})
+
+
+# ---------------------------------------------------------------------------
+# Accrual engine endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/accruals")
+def api_accruals() -> JSONResponse:
+    """Generate accrual entries: expected vs paid vs earned per line."""
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+    bank_rows = _read_csv(DATA_DIR / "raw/bank/bank_feed.csv")
+
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_map: dict[str, dict] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT line_id, matched_bank_txn_id, status, confidence
+                   FROM match_results WHERE run_id = ?""",
+                (run_id,),
+            ).fetchall()
+            match_map = {r["line_id"]: dict(r) for r in rows}
+
+    bank_lookup = {r["bank_txn_id"]: float(r.get("amount", 0)) for r in bank_rows}
+
+    accrual_entries = []
+    totals = {"expected": 0.0, "on_statement": 0.0, "cash_received": 0.0, "accrued": 0.0, "true_up": 0.0}
+
+    for i, stmt in enumerate(stmt_rows):
+        ams = expected_rows[i] if i < len(expected_rows) else {}
+        expected = float(ams.get("expected_commission", 0))
+        on_statement = float(stmt.get("gross_commission", 0))
+        mr = match_map.get(stmt["line_id"], {})
+        cash_received = 0.0
+        if mr.get("matched_bank_txn_id"):
+            cash_received = bank_lookup.get(mr["matched_bank_txn_id"], 0.0)
+
+        accrued = on_statement - cash_received if on_statement > 0 else 0.0
+        true_up = cash_received - expected if cash_received else 0.0
+        status = "settled" if abs(accrued) < 0.01 else "accrued"
+        if on_statement < 0:
+            status = "clawback"
+
+        totals["expected"] += expected
+        totals["on_statement"] += on_statement
+        totals["cash_received"] += cash_received
+        totals["accrued"] += max(accrued, 0)
+        totals["true_up"] += true_up
+
+        accrual_entries.append({
+            "line_id": stmt["line_id"],
+            "policy_number": stmt["policy_number"],
+            "carrier_name": stmt["carrier_name"],
+            "expected": round(expected, 2),
+            "on_statement": round(on_statement, 2),
+            "cash_received": round(cash_received, 2),
+            "accrued": round(accrued, 2),
+            "true_up_variance": round(true_up, 2),
+            "status": status,
+            "match_status": mr.get("status", "unknown"),
+        })
+
+    # Carrier summary
+    carrier_agg: dict[str, dict] = {}
+    for e in accrual_entries:
+        c = e["carrier_name"]
+        if c not in carrier_agg:
+            carrier_agg[c] = {"expected": 0, "on_statement": 0, "cash_received": 0, "accrued": 0, "lines": 0, "settled": 0}
+        b = carrier_agg[c]
+        b["expected"] += e["expected"]
+        b["on_statement"] += e["on_statement"]
+        b["cash_received"] += e["cash_received"]
+        b["accrued"] += max(e["accrued"], 0)
+        b["lines"] += 1
+        if e["status"] == "settled":
+            b["settled"] += 1
+
+    by_carrier = [
+        {"carrier": k, **{kk: round(vv, 2) if isinstance(vv, float) else vv for kk, vv in v.items()}}
+        for k, v in sorted(carrier_agg.items())
+    ]
+
+    return JSONResponse({
+        "totals": {k: round(v, 2) for k, v in totals.items()},
+        "entries": accrual_entries,
+        "by_carrier": by_carrier,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Journal / GL posting endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/journal")
+def api_journal() -> JSONResponse:
+    """Generate journal entries from resolved matches + accruals."""
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    bank_rows = _read_csv(DATA_DIR / "raw/bank/bank_feed.csv")
+    bank_lookup = {r["bank_txn_id"]: float(r.get("amount", 0)) for r in bank_rows}
+
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_map: dict[str, dict] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT line_id, matched_bank_txn_id, status
+                   FROM match_results WHERE run_id = ?""",
+                (run_id,),
+            ).fetchall()
+            match_map = {r["line_id"]: dict(r) for r in rows}
+
+    stmt_lookup = {r["line_id"]: r for r in stmt_rows}
+    journal_entries = []
+    je_id = 1
+
+    for stmt in stmt_rows:
+        mr = match_map.get(stmt["line_id"], {})
+        commission = float(stmt.get("gross_commission", 0))
+        cash = 0.0
+        if mr.get("matched_bank_txn_id"):
+            cash = bank_lookup.get(mr["matched_bank_txn_id"], 0.0)
+
+        is_settled = mr.get("status") in ("auto_matched", "resolved") and abs(cash) > 0.01
+
+        if is_settled:
+            # Cash receipt + revenue recognition
+            journal_entries.append({
+                "je_id": f"JE-{je_id:05d}",
+                "line_id": stmt["line_id"],
+                "carrier": stmt["carrier_name"],
+                "type": "cash_receipt",
+                "debit_account": "1010 — Cash",
+                "credit_account": "4010 — Commission Revenue",
+                "amount": round(abs(cash), 2),
+                "status": "posted",
+                "description": f"Cash receipt {stmt['policy_number']}",
+            })
+            je_id += 1
+
+            # If there's a difference, book to suspense
+            diff = round(abs(commission) - abs(cash), 2)
+            if abs(diff) > 0.01:
+                journal_entries.append({
+                    "je_id": f"JE-{je_id:05d}",
+                    "line_id": stmt["line_id"],
+                    "carrier": stmt["carrier_name"],
+                    "type": "variance",
+                    "debit_account": "1310 — Commission Suspense" if diff > 0 else "4010 — Commission Revenue",
+                    "credit_account": "4010 — Commission Revenue" if diff > 0 else "1310 — Commission Suspense",
+                    "amount": round(abs(diff), 2),
+                    "status": "posted",
+                    "description": f"Variance adjustment {stmt['policy_number']}",
+                })
+                je_id += 1
+        elif commission < 0:
+            # Clawback reversal
+            journal_entries.append({
+                "je_id": f"JE-{je_id:05d}",
+                "line_id": stmt["line_id"],
+                "carrier": stmt["carrier_name"],
+                "type": "clawback",
+                "debit_account": "4010 — Commission Revenue",
+                "credit_account": "1200 — Accounts Receivable",
+                "amount": round(abs(commission), 2),
+                "status": "pending_review",
+                "description": f"Clawback {stmt['policy_number']}",
+            })
+            je_id += 1
+        else:
+            # Accrual for unmatched/pending
+            journal_entries.append({
+                "je_id": f"JE-{je_id:05d}",
+                "line_id": stmt["line_id"],
+                "carrier": stmt["carrier_name"],
+                "type": "accrual",
+                "debit_account": "1200 — Accounts Receivable",
+                "credit_account": "4010 — Commission Revenue",
+                "amount": round(abs(commission), 2),
+                "status": "accrued",
+                "description": f"Accrual {stmt['policy_number']}",
+            })
+            je_id += 1
+
+    # Summarize
+    type_counts = Counter(e["type"] for e in journal_entries)
+    total_posted = sum(e["amount"] for e in journal_entries if e["status"] == "posted")
+    total_accrued = sum(e["amount"] for e in journal_entries if e["status"] == "accrued")
+    total_pending = sum(e["amount"] for e in journal_entries if e["status"] == "pending_review")
+
+    return JSONResponse({
+        "entries": journal_entries,
+        "count": len(journal_entries),
+        "type_counts": dict(type_counts),
+        "totals": {
+            "posted": round(total_posted, 2),
+            "accrued": round(total_accrued, 2),
+            "pending_review": round(total_pending, 2),
+        },
+    })
+
+
+@app.post("/api/v1/demo/journal/post")
+def api_journal_post() -> JSONResponse:
+    """Simulate posting journal entries to GL."""
+    log_audit_event(
+        DB_PATH, event_type="gl_posting", action="posted",
+        entity_type="journal", entity_id="batch",
+        actor="analyst", detail="Batch GL posting simulated",
+    )
+    return JSONResponse({"ok": True, "message": "Journal entries posted to GL (simulated)"})
+
+
+# ---------------------------------------------------------------------------
+# Export endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/exports/accrual.csv")
+def api_export_accrual():
+    """Export accrual entries as CSV."""
+    import io
+    accrual_data = api_accruals().body
+    import json
+    data = json.loads(accrual_data)
+    entries = data["entries"]
+
+    output = io.StringIO()
+    if entries:
+        fieldnames = list(entries[0].keys())
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for e in entries:
+            writer.writerow(e)
+
+    log_audit_event(DB_PATH, event_type="export", action="downloaded",
+                    entity_type="export", entity_id="accrual.csv", actor="analyst")
+
+    from starlette.responses import Response
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="accrual.csv"'},
+    )
+
+
+@app.get("/api/v1/demo/exports/journal.csv")
+def api_export_journal():
+    """Export journal entries as CSV."""
+    import io, json
+    journal_data = json.loads(api_journal().body)
+    entries = journal_data["entries"]
+
+    output = io.StringIO()
+    if entries:
+        fieldnames = list(entries[0].keys())
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for e in entries:
+            writer.writerow(e)
+
+    log_audit_event(DB_PATH, event_type="export", action="downloaded",
+                    entity_type="export", entity_id="journal.csv", actor="analyst")
+
+    from starlette.responses import Response
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="journal.csv"'},
+    )
+
+
+@app.get("/api/v1/demo/exports/producer-payout.csv")
+def api_export_producer_payout():
+    """Export producer payout summary as CSV."""
+    import io, json
+    producer_data = json.loads(api_producers().body)
+    entries = producer_data["producers"]
+
+    output = io.StringIO()
+    if entries:
+        fieldnames = list(entries[0].keys())
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for e in entries:
+            writer.writerow(e)
+
+    log_audit_event(DB_PATH, event_type="export", action="downloaded",
+                    entity_type="export", entity_id="producer-payout.csv", actor="analyst")
+
+    from starlette.responses import Response
+    return Response(
+        content=output.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="producer-payout.csv"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# Producer compensation endpoints
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/producers")
+def api_producers() -> JSONResponse:
+    """Producer compensation summary: commission by producer, carrier, LOB."""
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_map: dict[str, str] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT line_id, status FROM match_results WHERE run_id = ?",
+                (run_id,),
+            ).fetchall()
+            match_map = {r["line_id"]: r["status"] for r in rows}
+
+    producer_agg: dict[str, dict] = {}
+    for i, stmt in enumerate(stmt_rows):
+        ams = expected_rows[i] if i < len(expected_rows) else {}
+        producer_id = ams.get("producer_id", "Unknown")
+        office = ams.get("office", "")
+        lob = ams.get("lob", "Unknown")
+        commission = float(stmt.get("gross_commission", 0))
+        expected = float(ams.get("expected_commission", 0))
+        status = match_map.get(stmt["line_id"], "unknown")
+
+        if producer_id not in producer_agg:
+            producer_agg[producer_id] = {
+                "producer_id": producer_id,
+                "office": office,
+                "total_commission": 0.0,
+                "total_expected": 0.0,
+                "matched_commission": 0.0,
+                "pending_commission": 0.0,
+                "clawbacks": 0.0,
+                "lines": 0,
+                "matched_lines": 0,
+                "carriers": set(),
+                "lobs": set(),
+            }
+        p = producer_agg[producer_id]
+        p["total_commission"] += commission
+        p["total_expected"] += expected
+        p["lines"] += 1
+        p["carriers"].add(stmt["carrier_name"])
+        p["lobs"].add(lob)
+        if stmt.get("txn_type") == "clawback":
+            p["clawbacks"] += commission
+        if status in ("auto_matched", "resolved"):
+            p["matched_commission"] += commission
+            p["matched_lines"] += 1
+        else:
+            p["pending_commission"] += commission
+
+    producers = []
+    for p in sorted(producer_agg.values(), key=lambda x: x["total_commission"], reverse=True):
+        producers.append({
+            "producer_id": p["producer_id"],
+            "office": p["office"],
+            "total_commission": round(p["total_commission"], 2),
+            "total_expected": round(p["total_expected"], 2),
+            "matched_commission": round(p["matched_commission"], 2),
+            "pending_commission": round(p["pending_commission"], 2),
+            "clawbacks": round(p["clawbacks"], 2),
+            "net_payout": round(p["matched_commission"] + p["clawbacks"], 2),
+            "lines": p["lines"],
+            "matched_lines": p["matched_lines"],
+            "match_rate": round(p["matched_lines"] / p["lines"] * 100, 1) if p["lines"] else 0,
+            "carriers": sorted(p["carriers"]),
+            "lobs": sorted(p["lobs"]),
+        })
+
+    totals = {
+        "total_commission": round(sum(p["total_commission"] for p in producers), 2),
+        "matched_commission": round(sum(p["matched_commission"] for p in producers), 2),
+        "pending_commission": round(sum(p["pending_commission"] for p in producers), 2),
+        "clawbacks": round(sum(p["clawbacks"] for p in producers), 2),
+        "net_payout": round(sum(p["net_payout"] for p in producers), 2),
+        "producers": len(producers),
+    }
+
+    return JSONResponse({"producers": producers, "totals": totals})
 
 
 @app.get("/api/v1/demo/statements")

@@ -8,6 +8,11 @@ import Statements from './screens/Statements'
 import Transactions from './screens/Transactions'
 import Review from './screens/Review'
 import Revenue from './screens/Revenue'
+import AuditTrail from './screens/AuditTrail'
+import Accruals from './screens/Accruals'
+import Journal from './screens/Journal'
+import Exports from './screens/Exports'
+import Producers from './screens/Producers'
 
 const basename = import.meta.env.VITE_BASE_PATH || '/'
 
@@ -24,6 +29,11 @@ export default function App() {
           <Route path="transactions" element={<Transactions />} />
           <Route path="review/:lineId" element={<Review />} />
           <Route path="revenue" element={<Revenue />} />
+          <Route path="audit" element={<AuditTrail />} />
+          <Route path="accruals" element={<Accruals />} />
+          <Route path="journal" element={<Journal />} />
+          <Route path="exports" element={<Exports />} />
+          <Route path="producers" element={<Producers />} />
         </Route>
       </Routes>
     </BrowserRouter>

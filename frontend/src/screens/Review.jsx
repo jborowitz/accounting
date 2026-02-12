@@ -162,7 +162,7 @@ export default function Review() {
   if (error) return <p className="text-red-500 text-sm p-6">Error: {error}</p>
   if (!data) return null
 
-  const { statement: stmt, ams_expected: ams, match_result: mr, exception: ex, bank_transaction: btx, score_factors } = data
+  const { statement: stmt, ams_expected: ams, match_result: mr, exception: ex, bank_transaction: btx, score_factors, audit_events: auditEvents } = data
   const isClawback = stmt?.txn_type === 'clawback'
   const pdfUrl = stmt?.statement_id ? api.getStatementPdfUrl(stmt.statement_id) : null
 
@@ -306,6 +306,32 @@ export default function Review() {
               isClawback={isClawback}
               onAction={load}
             />
+
+            {/* Audit timeline */}
+            {auditEvents && auditEvents.length > 0 && (
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 mb-2">Audit Trail</h3>
+                <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  <div className="space-y-3">
+                    {auditEvents.map((evt) => (
+                      <div key={evt.event_id} className="flex gap-2 text-xs">
+                        <div className="flex-shrink-0 w-1.5 h-1.5 rounded-full bg-blue-400 mt-1.5" />
+                        <div>
+                          <span className="font-medium">{evt.action}</span>
+                          {evt.detail && <span className="text-gray-500"> — {evt.detail}</span>}
+                          {evt.old_value && evt.new_value && (
+                            <span className="text-gray-400"> ({evt.old_value} → {evt.new_value})</span>
+                          )}
+                          <div className="text-gray-400 mt-0.5">
+                            {evt.timestamp?.replace('T', ' ').slice(0, 19)} · {evt.actor}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
