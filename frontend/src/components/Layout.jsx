@@ -6,6 +6,7 @@ const links = [
   { to: '/exceptions', label: 'Exceptions' },
   { to: '/rules', label: 'Rules' },
   { to: '/statements', label: 'Statements' },
+  { to: '/transactions', label: 'Transactions' },
 ]
 
 export default function Layout() {

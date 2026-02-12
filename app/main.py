@@ -178,6 +178,62 @@ def api_policy_rules_upsert(payload: UpsertPolicyRuleRequest) -> JSONResponse:
     return JSONResponse({"ok": True, "rule": row})
 
 
+def _read_csv(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    with path.open(newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+@app.get("/api/v1/demo/bank-transactions")
+def api_bank_transactions(
+    counterparty: str | None = None,
+    limit: int = 500,
+) -> JSONResponse:
+    bank_rows = _read_csv(DATA_DIR / "raw/bank/bank_feed.csv")
+
+    if counterparty:
+        bank_rows = [r for r in bank_rows if counterparty.lower() in r.get("counterparty", "").lower()]
+
+    # Build match lookup from latest run
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    matched_by_txn: dict[str, dict] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT line_id, policy_number, matched_bank_txn_id, status, confidence
+                   FROM match_results WHERE run_id = ? AND matched_bank_txn_id IS NOT NULL""",
+                (run_id,),
+            ).fetchall()
+            for r in rows:
+                txn_id = r["matched_bank_txn_id"]
+                if txn_id not in matched_by_txn:
+                    matched_by_txn[txn_id] = {
+                        "line_id": r["line_id"],
+                        "policy_number": r["policy_number"],
+                        "match_status": r["status"],
+                        "confidence": r["confidence"],
+                    }
+
+    result = []
+    for row in bank_rows[:limit]:
+        txn_id = row.get("bank_txn_id", "")
+        match_info = matched_by_txn.get(txn_id)
+        result.append({
+            **row,
+            "matched_line_id": match_info["line_id"] if match_info else None,
+            "matched_policy": match_info["policy_number"] if match_info else None,
+            "match_status": match_info["match_status"] if match_info else "unmatched",
+            "confidence": match_info["confidence"] if match_info else None,
+        })
+
+    # Carrier list for filter dropdown
+    carriers = sorted(set(r.get("counterparty", "") for r in _read_csv(DATA_DIR / "raw/bank/bank_feed.csv")))
+
+    return JSONResponse({"rows": result, "count": len(result), "carriers": carriers})
+
+
 STATEMENTS_DIR = DATA_DIR / "raw/statements"
 
 

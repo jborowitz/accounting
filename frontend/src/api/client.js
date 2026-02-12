@@ -41,4 +41,10 @@ export const api = {
 
   listStatements: () => request('/api/v1/demo/statements'),
   getStatementPdfUrl: (statementId) => `${BASE}/api/v1/demo/statements/${statementId}.pdf`,
+
+  listBankTransactions: (counterparty, limit = 500) => {
+    const params = new URLSearchParams({ limit })
+    if (counterparty) params.set('counterparty', counterparty)
+    return request(`/api/v1/demo/bank-transactions?${params}`)
+  },
 }

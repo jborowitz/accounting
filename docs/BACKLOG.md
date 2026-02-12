@@ -21,7 +21,7 @@ Clicking "View PDF" on the Statements screen downloads the file instead of displ
 - This is the core "source document" experience — analysts need to see the PDF alongside data
 
 ### 0.2 Bank Transactions / Cash Feed Screen
-**Status**: `todo` | **Effort**: M
+**Status**: `done` | **Effort**: M
 
 There's no way to see incoming bank transactions. The bank_feed.csv data (300+ rows) is invisible to the user. Build `/transactions` screen:
 - Table: bank_txn_id, posted_date, amount, counterparty, memo, reference
