@@ -76,6 +76,15 @@ jobs:
         run: |
           BASE="${HEALTHCHECK_URL:-https://jeffborowitz.com/accounting-demo}"
           BASE="${BASE%/}"
+          echo "Waiting for container to be ready..."
+          for i in 1 2 3 4 5; do
+            if curl -fsSL --max-time 5 "$BASE/health" >/dev/null 2>&1; then
+              echo "Container ready after attempt $i"
+              break
+            fi
+            echo "Attempt $i failed, retrying in 3s..."
+            sleep 3
+          done
           echo "Health: $BASE/health"
           curl -fsSL "$BASE/health"
           echo
