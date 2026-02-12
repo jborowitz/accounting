@@ -43,6 +43,7 @@ export const api = {
   getStatementPdfUrl: (statementId) => `${BASE}/api/v1/demo/statements/${statementId}.pdf`,
 
   getLineDetail: (lineId) => request(`/api/v1/demo/line-detail/${lineId}`),
+  getRevenueSummary: () => request('/api/v1/demo/revenue/summary'),
 
   listBankTransactions: (counterparty, limit = 500) => {
     const params = new URLSearchParams({ limit })

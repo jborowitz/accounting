@@ -53,7 +53,7 @@ Comulate's "wow" moment: analyst sees PDF on left, structured data on right. Bui
 - This is Comulate's **Triage** experience
 
 ### 1.2 Revenue vs Expected Screen
-**Status**: `todo` | **Effort**: L
+**Status**: `done` | **Effort**: L
 
 Map to Comulate's **Revenue Intelligence**. Build `/revenue`:
 - Summary cards: Total Expected, Total Received, Variance, Recovery Rate

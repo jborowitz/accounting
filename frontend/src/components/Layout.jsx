@@ -7,6 +7,7 @@ const links = [
   { to: '/rules', label: 'Rules' },
   { to: '/statements', label: 'Statements' },
   { to: '/transactions', label: 'Transactions' },
+  { to: '/revenue', label: 'Revenue' },
 ]
 
 export default function Layout() {

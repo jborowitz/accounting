@@ -280,6 +280,117 @@ def api_line_detail(line_id: str) -> JSONResponse:
     })
 
 
+@app.get("/api/v1/demo/revenue/summary")
+def api_revenue_summary() -> JSONResponse:
+    """Revenue vs expected analysis: expected, received, variance by carrier and LOB."""
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+    bank_rows = _read_csv(DATA_DIR / "raw/bank/bank_feed.csv")
+
+    # Build lookup: line index → statement data + expected data
+    # AMS expected is keyed by position (same order as statement lines)
+    line_data: list[dict] = []
+    for i, stmt in enumerate(stmt_rows):
+        ams = expected_rows[i] if i < len(expected_rows) else {}
+        line_data.append({
+            "line_id": stmt["line_id"],
+            "carrier": stmt["carrier_name"],
+            "lob": ams.get("lob", "Unknown"),
+            "producer_id": ams.get("producer_id", ""),
+            "expected": float(ams.get("expected_commission", 0)),
+            "statement": float(stmt.get("gross_commission", 0)),
+            "txn_type": stmt.get("txn_type", ""),
+        })
+
+    # Match result lookup for actual received amounts
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_status: dict[str, str] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT line_id, status FROM match_results WHERE run_id = ?",
+                (run_id,),
+            ).fetchall()
+            match_status = {r["line_id"]: r["status"] for r in rows}
+
+    # Bank amounts indexed by txn_id
+    bank_total = sum(float(r.get("amount", 0)) for r in bank_rows)
+
+    # Aggregate by carrier
+    carrier_agg: dict[str, dict] = {}
+    lob_agg: dict[str, dict] = {}
+    totals = {"expected": 0.0, "statement": 0.0, "matched": 0.0, "unmatched": 0.0, "clawbacks": 0.0}
+
+    for ld in line_data:
+        carrier = ld["carrier"]
+        lob = ld["lob"]
+        status = match_status.get(ld["line_id"], "unknown")
+
+        for key, agg in [("carrier", carrier_agg), ("lob", lob_agg)]:
+            bucket_key = carrier if key == "carrier" else lob
+            if bucket_key not in agg:
+                agg[bucket_key] = {"expected": 0.0, "statement": 0.0, "matched": 0.0,
+                                   "unmatched": 0.0, "clawbacks": 0.0, "lines": 0, "matched_lines": 0}
+            b = agg[bucket_key]
+            b["expected"] += ld["expected"]
+            b["statement"] += abs(ld["statement"])
+            b["lines"] += 1
+            if ld["txn_type"] == "clawback":
+                b["clawbacks"] += ld["statement"]
+            if status in ("auto_matched", "resolved"):
+                b["matched"] += abs(ld["statement"])
+                b["matched_lines"] += 1
+            elif status in ("needs_review", "unmatched", "unknown"):
+                b["unmatched"] += abs(ld["statement"])
+
+        totals["expected"] += ld["expected"]
+        totals["statement"] += abs(ld["statement"])
+        if ld["txn_type"] == "clawback":
+            totals["clawbacks"] += ld["statement"]
+        if status in ("auto_matched", "resolved"):
+            totals["matched"] += abs(ld["statement"])
+        else:
+            totals["unmatched"] += abs(ld["statement"])
+
+    def round_agg(agg: dict) -> list[dict]:
+        result = []
+        for name, vals in sorted(agg.items()):
+            variance = vals["statement"] - vals["expected"]
+            pct = (variance / vals["expected"] * 100) if vals["expected"] else 0
+            result.append({
+                "name": name,
+                "expected": round(vals["expected"], 2),
+                "statement": round(vals["statement"], 2),
+                "matched": round(vals["matched"], 2),
+                "unmatched": round(vals["unmatched"], 2),
+                "clawbacks": round(vals["clawbacks"], 2),
+                "variance": round(variance, 2),
+                "variance_pct": round(pct, 1),
+                "lines": vals["lines"],
+                "matched_lines": vals["matched_lines"],
+                "match_rate": round(vals["matched_lines"] / vals["lines"] * 100, 1) if vals["lines"] else 0,
+            })
+        return result
+
+    totals_variance = totals["statement"] - totals["expected"]
+    return JSONResponse({
+        "totals": {
+            "expected": round(totals["expected"], 2),
+            "statement": round(totals["statement"], 2),
+            "matched": round(totals["matched"], 2),
+            "unmatched": round(totals["unmatched"], 2),
+            "clawbacks": round(totals["clawbacks"], 2),
+            "variance": round(totals_variance, 2),
+            "variance_pct": round(totals_variance / totals["expected"] * 100, 1) if totals["expected"] else 0,
+            "bank_total": round(bank_total, 2),
+            "lines": len(line_data),
+        },
+        "by_carrier": round_agg(carrier_agg),
+        "by_lob": round_agg(lob_agg),
+    })
+
+
 def _read_csv(path: Path) -> list[dict[str, Any]]:
     if not path.exists():
         return []
