@@ -8,7 +8,7 @@ import {
 } from '@tanstack/react-table'
 import { useState } from 'react'
 
-export default function DataTable({ data, columns, pageSize = 20 }) {
+export default function DataTable({ data, columns, pageSize = 20, getRowClassName }) {
   const [sorting, setSorting] = useState([])
   const [globalFilter, setGlobalFilter] = useState('')
 
@@ -54,7 +54,7 @@ export default function DataTable({ data, columns, pageSize = 20 }) {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id} className="hover:bg-gray-50">
+              <tr key={row.id} className={`hover:bg-gray-50 ${getRowClassName ? getRowClassName(row.original) : ''}`}>
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id} className="px-3 py-2 whitespace-nowrap">
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}

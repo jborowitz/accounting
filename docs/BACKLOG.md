@@ -30,7 +30,7 @@ There's no way to see incoming bank transactions. The bank_feed.csv data (300+ r
 - This maps to Comulate's **Cash Application** feature — the bank side of reconciliation
 
 ### 0.3 Surface Clawbacks Properly
-**Status**: `todo` | **Effort**: M
+**Status**: `done` | **Effort**: M
 
 Clawbacks exist in seed data (11 cases with negative commission, txn_type="clawback") but they're buried in the generic match results table with no special treatment. Need:
 - Visual indicator on Match Results: red badge/row highlighting for clawback lines

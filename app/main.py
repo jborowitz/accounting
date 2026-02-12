@@ -81,6 +81,11 @@ def demo_summary() -> dict[str, Any]:
     reasons = Counter(row.get("expected_reason", "unknown") for row in cases)
     statuses = Counter(row.get("expected_status", "unknown") for row in cases)
 
+    # Clawback stats from statement lines
+    stmt_rows = _read_csv(statement_path)
+    clawback_lines = [r for r in stmt_rows if r.get("txn_type") == "clawback"]
+    clawback_total = sum(float(r.get("gross_commission", 0)) for r in clawback_lines)
+
     return {
         "statement_rows": count_rows(statement_path),
         "bank_rows": count_rows(bank_path),
@@ -88,6 +93,8 @@ def demo_summary() -> dict[str, Any]:
         "case_rows": len(cases),
         "status_breakdown": dict(statuses),
         "exception_reasons": dict(reasons),
+        "clawback_count": len(clawback_lines),
+        "clawback_total": round(clawback_total, 2),
     }
 
 
@@ -137,6 +144,18 @@ def api_match_results(status: str | None = None, limit: int = 500) -> JSONRespon
     if status and status not in {"auto_matched", "needs_review", "unmatched", "resolved"}:
         raise HTTPException(status_code=400, detail="invalid status filter")
     rows, run_id = list_match_results(DB_PATH, status=status, limit=limit)
+
+    # Enrich with statement-level data (txn_type, commission)
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    stmt_lookup = {r["line_id"]: r for r in stmt_rows}
+    for row in rows:
+        sl = stmt_lookup.get(row["line_id"], {})
+        row["txn_type"] = sl.get("txn_type", "")
+        row["gross_commission"] = sl.get("gross_commission", "")
+        row["insured_name"] = sl.get("insured_name", "")
+        row["carrier_name"] = sl.get("carrier_name", "")
+        row["statement_id"] = sl.get("statement_id", "")
+
     return JSONResponse({"rows": rows, "count": len(rows), "run_id": run_id})
 
 
@@ -145,6 +164,18 @@ def api_exceptions(status: str = "open", limit: int = 100) -> JSONResponse:
     if status not in {"open", "resolved"}:
         raise HTTPException(status_code=400, detail="status must be open or resolved")
     rows = list_exceptions(DB_PATH, status=status, limit=limit)
+
+    # Enrich with statement-level data
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    stmt_lookup = {r["line_id"]: r for r in stmt_rows}
+    for row in rows:
+        sl = stmt_lookup.get(row["line_id"], {})
+        row["txn_type"] = sl.get("txn_type", "")
+        row["gross_commission"] = sl.get("gross_commission", "")
+        row["insured_name"] = sl.get("insured_name", "")
+        row["carrier_name"] = sl.get("carrier_name", "")
+        row["statement_id"] = sl.get("statement_id", "")
+
     return JSONResponse({"rows": rows, "count": len(rows)})
 
 

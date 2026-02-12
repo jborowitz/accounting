@@ -1,20 +1,37 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api/client'
 
-function Card({ label, value, accent }) {
+function Card({ label, value, accent, onClick }) {
   const colors = {
     green: 'border-green-400 bg-green-50',
     yellow: 'border-yellow-400 bg-yellow-50',
     red: 'border-red-400 bg-red-50',
     blue: 'border-blue-400 bg-blue-50',
+    purple: 'border-purple-400 bg-purple-50',
     gray: 'border-gray-300 bg-white',
   }
+  const cls = `rounded-lg border-l-4 p-4 shadow-sm ${colors[accent] || colors.gray}`
+  if (onClick) {
+    return (
+      <button onClick={onClick} className={`${cls} text-left hover:ring-2 hover:ring-offset-1 hover:ring-gray-300 transition-shadow`}>
+        <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
+        <div className="mt-1 text-2xl font-bold">{value ?? '—'}</div>
+      </button>
+    )
+  }
   return (
-    <div className={`rounded-lg border-l-4 p-4 shadow-sm ${colors[accent] || colors.gray}`}>
+    <div className={cls}>
       <div className="text-xs text-gray-500 uppercase tracking-wide">{label}</div>
       <div className="mt-1 text-2xl font-bold">{value ?? '—'}</div>
     </div>
   )
+}
+
+function fmt(n) {
+  if (n == null) return '—'
+  const v = Math.abs(Number(n))
+  return `−$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
 }
 
 export default function Dashboard() {
@@ -22,6 +39,7 @@ export default function Dashboard() {
   const [runs, setRuns] = useState([])
   const [running, setRunning] = useState(false)
   const [lastResult, setLastResult] = useState(null)
+  const navigate = useNavigate()
 
   const load = useCallback(async () => {
     const [s, r] = await Promise.all([api.getSummary(), api.listMatchRuns(10)])
@@ -57,12 +75,25 @@ export default function Dashboard() {
 
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <Card label="Statement Rows" value={summary.statement_rows} accent="gray" />
-          <Card label="Bank Rows" value={summary.bank_rows} accent="gray" />
-          <Card label="Auto-Matched" value={summary.status_breakdown?.auto_matched} accent="green" />
-          <Card label="Needs Review" value={summary.status_breakdown?.needs_review} accent="yellow" />
-          <Card label="Unmatched" value={summary.status_breakdown?.unmatched} accent="red" />
+          <Card label="Statement Rows" value={summary.statement_rows} accent="gray"
+            onClick={() => navigate('/statements')} />
+          <Card label="Bank Rows" value={summary.bank_rows} accent="gray"
+            onClick={() => navigate('/transactions')} />
+          <Card label="Auto-Matched" value={summary.status_breakdown?.auto_matched} accent="green"
+            onClick={() => navigate('/results?status=auto_matched')} />
+          <Card label="Needs Review" value={summary.status_breakdown?.needs_review} accent="yellow"
+            onClick={() => navigate('/exceptions')} />
+          <Card label="Unmatched" value={summary.status_breakdown?.unmatched} accent="red"
+            onClick={() => navigate('/results?status=unmatched')} />
           <Card label="Case Rows" value={summary.case_rows} accent="blue" />
+          {summary.clawback_count > 0 && (
+            <Card
+              label="Clawbacks"
+              value={<span className="text-purple-700">{summary.clawback_count} <span className="text-sm font-normal">{fmt(summary.clawback_total)}</span></span>}
+              accent="purple"
+              onClick={() => navigate('/results?reason=clawback')}
+            />
+          )}
         </div>
       )}
 

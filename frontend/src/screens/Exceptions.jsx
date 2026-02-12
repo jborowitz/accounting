@@ -4,7 +4,8 @@ import DataTable from '../components/DataTable'
 import StatusBadge from '../components/StatusBadge'
 
 function ResolveModal({ exception, onClose, onResolved }) {
-  const [action, setAction] = useState('manual_link')
+  const isClawback = exception.txn_type === 'clawback'
+  const [action, setAction] = useState(isClawback ? 'confirm_reversal' : 'manual_link')
   const [bankTxnId, setBankTxnId] = useState(exception.suggested_bank_txn_id || '')
   const [note, setNote] = useState('')
   const [saving, setSaving] = useState(false)
@@ -30,13 +31,29 @@ function ResolveModal({ exception, onClose, onResolved }) {
       <form onSubmit={submit} className="bg-white rounded-lg shadow-xl p-6 w-full max-w-md">
         <h3 className="text-lg font-semibold mb-4">
           Resolve {exception.line_id}
+          {isClawback && (
+            <span className="ml-2 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+              clawback
+            </span>
+          )}
         </h3>
         <p className="text-sm text-gray-600 mb-1">
           Policy: <span className="font-mono">{exception.policy_number}</span>
         </p>
-        <p className="text-sm text-gray-600 mb-4">
+        <p className="text-sm text-gray-600 mb-1">
           Confidence: {(exception.confidence * 100).toFixed(1)}% — {exception.reason}
         </p>
+        {exception.gross_commission && (
+          <p className={`text-sm mb-1 ${isClawback ? 'text-purple-700 font-medium' : 'text-gray-600'}`}>
+            Commission: ${Number(exception.gross_commission).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+            {isClawback && ' (reversal)'}
+          </p>
+        )}
+        {exception.insured_name && (
+          <p className="text-sm text-gray-600 mb-4">
+            Insured: {exception.insured_name}
+          </p>
+        )}
 
         <label className="block text-sm font-medium mb-1">Action</label>
         <select
@@ -44,9 +61,21 @@ function ResolveModal({ exception, onClose, onResolved }) {
           onChange={(e) => setAction(e.target.value)}
           className="w-full mb-3 px-2 py-1.5 border border-gray-300 rounded text-sm"
         >
-          <option value="manual_link">Manual Link</option>
-          <option value="write_off">Write Off</option>
-          <option value="defer">Defer</option>
+          {isClawback ? (
+            <>
+              <option value="confirm_reversal">Confirm Reversal</option>
+              <option value="dispute_clawback">Dispute Clawback</option>
+              <option value="offset_overpayment">Offset Prior Overpayment</option>
+              <option value="write_off">Write Off</option>
+              <option value="defer">Defer for Review</option>
+            </>
+          ) : (
+            <>
+              <option value="manual_link">Manual Link</option>
+              <option value="write_off">Write Off</option>
+              <option value="defer">Defer</option>
+            </>
+          )}
         </select>
 
         <label className="block text-sm font-medium mb-1">Bank Transaction ID</label>
@@ -64,7 +93,7 @@ function ResolveModal({ exception, onClose, onResolved }) {
           onChange={(e) => setNote(e.target.value)}
           rows={2}
           className="w-full mb-4 px-2 py-1.5 border border-gray-300 rounded text-sm"
-          placeholder="Optional resolution note..."
+          placeholder={isClawback ? 'Reason for clawback, offset details...' : 'Optional resolution note...'}
         />
 
         <div className="flex gap-2 justify-end">
@@ -78,7 +107,9 @@ function ResolveModal({ exception, onClose, onResolved }) {
           <button
             type="submit"
             disabled={saving}
-            className="px-3 py-1.5 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+            className={`px-3 py-1.5 text-sm text-white rounded disabled:opacity-50 ${
+              isClawback ? 'bg-purple-600 hover:bg-purple-700' : 'bg-blue-600 hover:bg-blue-700'
+            }`}
           >
             {saving ? 'Saving...' : 'Resolve'}
           </button>
@@ -93,6 +124,7 @@ export default function Exceptions() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [resolving, setResolving] = useState(null)
+  const [reasonFilter, setReasonFilter] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -103,10 +135,30 @@ export default function Exceptions() {
 
   useEffect(() => { load() }, [load])
 
+  const filtered = reasonFilter
+    ? rows.filter((r) => r.txn_type === reasonFilter || r.reason?.includes(reasonFilter))
+    : rows
+
+  const clawbackCount = rows.filter((r) => r.txn_type === 'clawback').length
+
   const columns = useMemo(
     () => [
       { accessorKey: 'line_id', header: 'Line ID' },
       { accessorKey: 'policy_number', header: 'Policy #' },
+      {
+        id: 'type',
+        header: 'Type',
+        accessorFn: (row) => row.txn_type || 'standard',
+        cell: ({ getValue }) => {
+          const v = getValue()
+          if (v === 'clawback') return (
+            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+              clawback
+            </span>
+          )
+          return <span className="text-gray-400 text-xs">{v}</span>
+        },
+      },
       {
         accessorKey: 'confidence',
         header: 'Confidence',
@@ -127,7 +179,11 @@ export default function Exceptions() {
               cell: ({ row }) => (
                 <button
                   onClick={() => setResolving(row.original)}
-                  className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700"
+                  className={`px-2 py-1 text-xs text-white rounded ${
+                    row.original.txn_type === 'clawback'
+                      ? 'bg-purple-600 hover:bg-purple-700'
+                      : 'bg-blue-600 hover:bg-blue-700'
+                  }`}
                 >
                   Resolve
                 </button>
@@ -146,7 +202,7 @@ export default function Exceptions() {
     <div>
       <h2 className="text-xl font-semibold mb-4">Exception Queue</h2>
 
-      <div className="flex gap-1 mb-4">
+      <div className="flex gap-1 mb-4 items-center">
         {['open', 'resolved'].map((t) => (
           <button
             key={t}
@@ -160,18 +216,38 @@ export default function Exceptions() {
             {t.charAt(0).toUpperCase() + t.slice(1)}
           </button>
         ))}
+
+        {clawbackCount > 0 && (
+          <>
+            <span className="mx-2 text-gray-300">|</span>
+            <button
+              onClick={() => setReasonFilter(f => f === 'clawback' ? '' : 'clawback')}
+              className={`px-3 py-1 text-xs font-medium rounded-full border transition-colors ${
+                reasonFilter === 'clawback'
+                  ? 'bg-purple-100 text-purple-800 border-purple-300'
+                  : 'bg-white text-gray-600 border-gray-300 hover:bg-purple-50'
+              }`}
+            >
+              Clawbacks ({clawbackCount})
+            </button>
+          </>
+        )}
       </div>
 
       {loading ? (
         <p className="text-gray-500 text-sm">Loading...</p>
-      ) : rows.length === 0 ? (
+      ) : filtered.length === 0 ? (
         <p className="text-gray-500 text-sm">
           {tab === 'open'
             ? 'No open exceptions. Run matching from the Dashboard first.'
             : 'No resolved exceptions yet.'}
         </p>
       ) : (
-        <DataTable data={rows} columns={columns} />
+        <DataTable
+          data={filtered}
+          columns={columns}
+          getRowClassName={(row) => row.txn_type === 'clawback' ? 'bg-purple-50/60' : ''}
+        />
       )}
 
       {resolving && (
