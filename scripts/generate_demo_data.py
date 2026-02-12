@@ -19,15 +19,15 @@ from pathlib import Path
 from typing import Iterable
 
 
-CARRIERS = ["Summit National", "Harbor Mutual", "Northfield Specialty"]
+CARRIERS = ["Summit National", "Wilson Mutual", "Northfield Specialty"]
 CARRIER_DATE_FMT = {
     "Summit National": "us",        # MM/DD/YYYY
-    "Harbor Mutual": "euro",        # DD-Mon-YYYY
+    "Wilson Mutual": "euro",        # DD-Mon-YYYY
     "Northfield Specialty": "iso",  # YYYY-MM-DD
 }
 CARRIER_NAME_ABBREVS = {
     "Summit National": "Summit Nat'l",
-    "Harbor Mutual": "Harbor Mut Ins",
+    "Wilson Mutual": "Wilson Mut Ins",
     "Northfield Specialty": "Northfield Spec",
 }
 LOB_VALUES = ["P&C", "Benefits", "WC", "Cyber"]

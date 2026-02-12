@@ -1,7 +1,7 @@
 """Three distinct PDF templates for carrier commission statements.
 
 - Summit National: formal corporate style (blue header, bordered table, totals)
-- Harbor Mutual: compact spreadsheet (gray header, alternating rows)
+- Wilson Mutual: warm personal style (teal header, Jason's photo, alternating rows)
 - Northfield Specialty: legacy/scanned look (Courier, dashed separators, rotation)
 """
 
@@ -17,9 +17,11 @@ from reportlab.pdfgen import canvas
 
 TEMPLATES = {
     "Summit National": "summit_national",
-    "Harbor Mutual": "harbor_mutual",
+    "Wilson Mutual": "wilson_mutual",
     "Northfield Specialty": "northfield_specialty",
 }
+
+JASON_IMG = Path(__file__).resolve().parent / "jason.png"
 
 
 def render_statement_pdf(
@@ -34,8 +36,8 @@ def render_statement_pdf(
     tpl = TEMPLATES.get(carrier, "summit_national")
     if tpl == "summit_national":
         _render_summit(path, statement_id, rows, date_format)
-    elif tpl == "harbor_mutual":
-        _render_harbor(path, statement_id, rows, date_format)
+    elif tpl == "wilson_mutual":
+        _render_wilson(path, statement_id, rows, date_format)
     elif tpl == "northfield_specialty":
         _render_northfield(path, statement_id, rows, date_format)
 
@@ -154,31 +156,53 @@ def _render_summit(path: Path, statement_id: str, rows: list[dict], date_fmt: st
 
 
 # ---------------------------------------------------------------------------
-# Harbor Mutual — compact spreadsheet
+# Wilson Mutual — warm personal style with Jason's photo
 # ---------------------------------------------------------------------------
 
-def _render_harbor(path: Path, statement_id: str, rows: list[dict], date_fmt: str) -> None:
+def _render_wilson(path: Path, statement_id: str, rows: list[dict], date_fmt: str) -> None:
     w, h = letter
     c = canvas.Canvas(str(path), pagesize=letter)
 
     def draw_header(page_num: int = 1):
         nonlocal y
-        # Gray header bar
-        c.setFillColor(colors.HexColor("#6b7280"))
-        c.rect(0, h - 50, w, 50, fill=True, stroke=False)
+        # Teal header bar
+        c.setFillColor(colors.HexColor("#0d9488"))
+        c.rect(0, h - 65, w, 65, fill=True, stroke=False)
+
+        # Jason's photo in header (circular clip via save/restore + clip)
+        if JASON_IMG.exists():
+            c.saveState()
+            # Draw circular clip path
+            cx, cy, r = 52, h - 32, 18
+            p = c.beginPath()
+            p.circle(cx, cy, r)
+            c.clipPath(p, stroke=0)
+            c.drawImage(str(JASON_IMG), cx - r, cy - r, 2 * r, 2 * r,
+                         preserveAspectRatio=True, anchor='c')
+            c.restoreState()
+            # Circle border
+            c.setStrokeColor(colors.white)
+            c.setLineWidth(2)
+            c.circle(52, h - 32, 18, stroke=True, fill=False)
+
         c.setFillColor(colors.white)
-        c.setFont("Helvetica-Bold", 12)
-        c.drawString(30, h - 30, "Harbor Mutual Insurance")
+        c.setFont("Helvetica-Bold", 14)
+        c.drawString(80, h - 28, "Wilson Mutual Insurance")
         c.setFont("Helvetica", 8)
-        c.drawString(30, h - 43, f"Statement {statement_id}")
-        c.drawRightString(w - 30, h - 30, f"Page {page_num}")
+        c.drawString(80, h - 42, f"Statement {statement_id}  |  Jason Wilson, President")
+        c.drawRightString(w - 30, h - 28, f"Page {page_num}")
 
-        y = h - 70
+        # Thin accent line
+        c.setStrokeColor(colors.HexColor("#5eead4"))
+        c.setLineWidth(2)
+        c.line(0, h - 65, w, h - 65)
 
-        # Column headers on gray
-        c.setFillColor(colors.HexColor("#f3f4f6"))
+        y = h - 85
+
+        # Column headers on light teal
+        c.setFillColor(colors.HexColor("#f0fdfa"))
         c.rect(20, y - 3, w - 40, 14, fill=True, stroke=False)
-        c.setFillColor(colors.HexColor("#374151"))
+        c.setFillColor(colors.HexColor("#134e4a"))
         c.setFont("Helvetica-Bold", 7)
         for x, hdr in zip(col_x, col_headers):
             c.drawString(x, y, hdr)
@@ -198,9 +222,9 @@ def _render_harbor(path: Path, statement_id: str, rows: list[dict], date_fmt: st
             y = 0
             draw_header(page)
 
-        # Alternating row shading
+        # Alternating row shading (warm teal tint)
         if idx % 2 == 0:
-            c.setFillColor(colors.HexColor("#f9fafb"))
+            c.setFillColor(colors.HexColor("#f0fdfa"))
             c.rect(20, y - 3, w - 40, 13, fill=True, stroke=False)
 
         c.setFillColor(colors.HexColor("#111827"))
@@ -214,6 +238,12 @@ def _render_harbor(path: Path, statement_id: str, rows: list[dict], date_fmt: st
         c.drawRightString(col_x[6] + 45, y, f"{float(row.get('written_premium', 0)):,.2f}")
         c.drawRightString(col_x[7] + 45, y, f"{float(row.get('gross_commission', 0)):,.2f}")
         y -= 13
+
+    # Footer
+    y -= 10
+    c.setFont("Helvetica", 7)
+    c.setFillColor(colors.HexColor("#6b7280"))
+    c.drawString(25, y, "Wilson Mutual Insurance  |  Questions? Contact jason@wilsonmutual.com")
 
     c.save()
 

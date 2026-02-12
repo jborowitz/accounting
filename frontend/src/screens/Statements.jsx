@@ -3,7 +3,7 @@ import { api } from '../api/client'
 
 const carrierColors = {
   'Summit National': 'bg-blue-100 text-blue-800',
-  'Harbor Mutual': 'bg-gray-100 text-gray-800',
+  'Wilson Mutual': 'bg-teal-100 text-teal-800',
   'Northfield Specialty': 'bg-amber-100 text-amber-800',
 }
 

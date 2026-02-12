@@ -14,9 +14,14 @@ export default function Layout() {
   return (
     <div className="flex h-screen">
       <nav className="w-56 bg-gray-900 text-gray-300 flex flex-col flex-shrink-0">
-        <div className="px-4 py-5 border-b border-gray-700">
-          <h1 className="text-white font-semibold text-base leading-tight">Commission</h1>
-          <h1 className="text-white font-semibold text-base leading-tight">Reconciliation</h1>
+        <div className="px-4 py-4 border-b border-gray-700">
+          <div className="flex items-center gap-3 mb-2">
+            <img src={`${import.meta.env.BASE_URL}jason.png`} alt="Jason" className="w-9 h-9 rounded-full ring-2 ring-gray-600 object-cover" />
+            <div>
+              <div className="text-white font-semibold text-sm leading-tight">Jason's</div>
+              <div className="text-gray-400 text-xs leading-tight">Commission Recon</div>
+            </div>
+          </div>
         </div>
         <ul className="flex-1 py-3">
           {links.map((l) => (
