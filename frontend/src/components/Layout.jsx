@@ -5,6 +5,7 @@ const links = [
   { to: '/results', label: 'Match Results' },
   { to: '/exceptions', label: 'Exceptions' },
   { to: '/rules', label: 'Rules' },
+  { to: '/statements', label: 'Statements' },
 ]
 
 export default function Layout() {

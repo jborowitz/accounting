@@ -58,6 +58,17 @@ def init_db(db_path: Path) -> None:
                 note TEXT,
                 updated_at TEXT NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS statement_metadata (
+                statement_id TEXT PRIMARY KEY,
+                carrier_name TEXT NOT NULL,
+                line_count INTEGER NOT NULL,
+                total_premium REAL NOT NULL,
+                total_commission REAL NOT NULL,
+                min_effective_date TEXT,
+                max_effective_date TEXT,
+                pdf_path TEXT
+            );
             """
         )
 
@@ -318,3 +329,46 @@ def load_policy_overrides(db_path: Path) -> dict[str, str]:
             "SELECT source_policy_number, target_policy_number FROM policy_rules"
         ).fetchall()
         return {str(r["source_policy_number"]): str(r["target_policy_number"]) for r in rows}
+
+
+def upsert_statement_metadata(db_path: Path, meta: dict[str, Any]) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute(
+            """
+            INSERT INTO statement_metadata(
+                statement_id, carrier_name, line_count, total_premium,
+                total_commission, min_effective_date, max_effective_date, pdf_path
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(statement_id) DO UPDATE SET
+                carrier_name=excluded.carrier_name,
+                line_count=excluded.line_count,
+                total_premium=excluded.total_premium,
+                total_commission=excluded.total_commission,
+                min_effective_date=excluded.min_effective_date,
+                max_effective_date=excluded.max_effective_date,
+                pdf_path=excluded.pdf_path
+            """,
+            (
+                meta["statement_id"],
+                meta["carrier_name"],
+                meta["line_count"],
+                meta["total_premium"],
+                meta["total_commission"],
+                meta.get("min_effective_date"),
+                meta.get("max_effective_date"),
+                meta.get("pdf_path"),
+            ),
+        )
+
+
+def list_statement_metadata(db_path: Path) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        rows = conn.execute(
+            """
+            SELECT statement_id, carrier_name, line_count, total_premium,
+                   total_commission, min_effective_date, max_effective_date, pdf_path
+            FROM statement_metadata
+            ORDER BY carrier_name, statement_id
+            """
+        ).fetchall()
+        return [dict(row) for row in rows]

@@ -38,4 +38,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(payload),
     }),
+
+  listStatements: () => request('/api/v1/demo/statements'),
+  getStatementPdfUrl: (statementId) => `${BASE}/api/v1/demo/statements/${statementId}.pdf`,
 }

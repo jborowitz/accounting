@@ -21,10 +21,12 @@ from app.persistence import (
     list_match_results,
     list_match_runs,
     list_policy_rules,
+    list_statement_metadata,
     load_policy_overrides,
     resolve_exception,
     save_match_run,
     upsert_policy_rule,
+    upsert_statement_metadata,
 )
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -176,6 +178,23 @@ def api_policy_rules_upsert(payload: UpsertPolicyRuleRequest) -> JSONResponse:
     return JSONResponse({"ok": True, "rule": row})
 
 
+STATEMENTS_DIR = DATA_DIR / "raw/statements"
+
+
+@app.get("/api/v1/demo/statements")
+def api_list_statements() -> JSONResponse:
+    rows = list_statement_metadata(DB_PATH)
+    return JSONResponse({"rows": rows, "count": len(rows)})
+
+
+@app.get("/api/v1/demo/statements/{statement_id}.pdf")
+def api_get_statement_pdf(statement_id: str) -> FileResponse:
+    pdf_path = STATEMENTS_DIR / f"{statement_id}.pdf"
+    if not pdf_path.is_file():
+        raise HTTPException(status_code=404, detail="PDF not found")
+    return FileResponse(pdf_path, media_type="application/pdf", filename=f"{statement_id}.pdf")
+
+
 # SPA catch-all: serve React app for non-API routes
 if STATIC_DIR.is_dir():
     @app.get("/{full_path:path}")
@@ -200,3 +219,39 @@ else:
 @app.on_event("startup")
 def on_startup() -> None:
     init_db(DB_PATH)
+    _load_statement_metadata()
+
+
+def _load_statement_metadata() -> None:
+    """Scan statement CSVs and PDFs to populate statement_metadata table."""
+    csv_path = DATA_DIR / "raw/statements/statement_lines.csv"
+    if not csv_path.exists():
+        return
+
+    rows = []
+    with csv_path.open(newline="", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+
+    grouped: dict[str, list[dict]] = {}
+    for row in rows:
+        grouped.setdefault(row["statement_id"], []).append(row)
+
+    for statement_id, lines in grouped.items():
+        carrier = lines[0]["carrier_name"]
+        total_premium = sum(float(r["written_premium"]) for r in lines)
+        total_commission = sum(float(r["gross_commission"]) for r in lines)
+        eff_dates = [r["effective_date"] for r in lines if r.get("effective_date")]
+        pdf_path = DATA_DIR / "raw/statements" / f"{statement_id}.pdf"
+        upsert_statement_metadata(
+            DB_PATH,
+            {
+                "statement_id": statement_id,
+                "carrier_name": carrier,
+                "line_count": len(lines),
+                "total_premium": round(total_premium, 2),
+                "total_commission": round(total_commission, 2),
+                "min_effective_date": min(eff_dates) if eff_dates else None,
+                "max_effective_date": max(eff_dates) if eff_dates else None,
+                "pdf_path": str(pdf_path) if pdf_path.exists() else None,
+            },
+        )
