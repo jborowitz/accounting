@@ -248,7 +248,7 @@ export default function Exceptions() {
       ) : filtered.length === 0 ? (
         <p className="text-gray-500 text-sm">
           {tab === 'open'
-            ? 'No open exceptions. Run matching from the Dashboard first.'
+            ? 'No open exceptions. Run reconciliation from the Dashboard first.'
             : 'No resolved exceptions yet.'}
         </p>
       ) : (

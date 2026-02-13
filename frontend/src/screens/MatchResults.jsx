@@ -4,7 +4,13 @@ import { api } from '../api/client'
 import DataTable from '../components/DataTable'
 import StatusBadge from '../components/StatusBadge'
 
-const STATUS_OPTIONS = ['', 'auto_matched', 'needs_review', 'unmatched', 'resolved']
+const STATUS_OPTIONS = [
+  { value: '', label: 'All' },
+  { value: 'auto_matched', label: 'Matched' },
+  { value: 'needs_review', label: 'Pending Review' },
+  { value: 'unmatched', label: 'Unmatched' },
+  { value: 'resolved', label: 'Resolved' },
+]
 
 function fmt(n) {
   if (!n) return '—'
@@ -113,8 +119,8 @@ export default function MatchResults() {
             className="px-2 py-1 border border-gray-300 rounded text-sm"
           >
             {STATUS_OPTIONS.map((s) => (
-              <option key={s} value={s}>
-                {s || 'All'}
+              <option key={s.value} value={s.value}>
+                {s.label}
               </option>
             ))}
           </select>
@@ -146,7 +152,7 @@ export default function MatchResults() {
       {loading ? (
         <p className="text-gray-500 text-sm">Loading...</p>
       ) : filtered.length === 0 ? (
-        <p className="text-gray-500 text-sm">No results. Run matching from the Dashboard first.</p>
+        <p className="text-gray-500 text-sm">No results. Run reconciliation from the Dashboard first.</p>
       ) : (
         <DataTable
           data={filtered}

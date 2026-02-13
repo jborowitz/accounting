@@ -37,7 +37,7 @@ function RuleForm({ onSubmit, saving }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); onSubmit(form) }}
       className="p-4 bg-white border border-gray-200 rounded-lg mb-6">
-      <h3 className="text-sm font-semibold mb-3">Add / Update Split Rule</h3>
+      <h3 className="text-sm font-semibold mb-3">Add / Update Comp Rule</h3>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
         <div>
           <label className="block text-xs text-gray-500 mb-1">Producer ID *</label>
@@ -267,7 +267,7 @@ export default function Splits() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold">Deal / Split Rules</h2>
+        <h2 className="text-xl font-semibold">Compensation Plans</h2>
         <div className="flex items-center gap-3">
           <span className="text-sm text-gray-500">{splits.length} rules</span>
           {splits.length === 0 && (
@@ -282,7 +282,7 @@ export default function Splits() {
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b border-gray-200">
         {[
-          { key: 'rules', label: 'Split Rules' },
+          { key: 'rules', label: 'Comp Rules' },
           { key: 'test', label: 'What-If Test' },
           { key: 'history', label: 'Version History' },
         ].map((t) => (
@@ -302,7 +302,7 @@ export default function Splits() {
           {loading ? (
             <p className="text-gray-500 text-sm">Loading...</p>
           ) : splits.length === 0 ? (
-            <p className="text-gray-500 text-sm">No split rules yet. Add one above or seed demo data.</p>
+            <p className="text-gray-500 text-sm">No compensation rules yet. Add one above or seed demo data.</p>
           ) : (
             <div className="overflow-x-auto rounded-lg border border-gray-200">
               <table className="min-w-full text-sm">
@@ -310,7 +310,7 @@ export default function Splits() {
                   <tr>
                     <th className="px-3 py-2 text-left font-medium text-gray-600">Producer</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-600">Carrier</th>
-                    <th className="px-3 py-2 text-left font-medium text-gray-600">LOB</th>
+                    <th className="px-3 py-2 text-left font-medium text-gray-600">Line of Business</th>
                     <th className="px-3 py-2 font-medium text-gray-600 w-40">Split</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-600">Fee</th>
                     <th className="px-3 py-2 text-left font-medium text-gray-600">Effective</th>

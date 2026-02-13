@@ -135,7 +135,7 @@ export default function CarrierMappings() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-semibold">Carrier Field Mappings</h2>
+          <h2 className="text-xl font-semibold">Carrier Formats</h2>
           <p className="text-sm text-gray-500">How each carrier's statement format maps to our schema</p>
         </div>
         <span className="text-sm text-gray-500">{data.mappings.length} carriers configured</span>

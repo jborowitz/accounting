@@ -62,7 +62,7 @@ export default function Transactions() {
         </button>
         <button onClick={() => setStatusFilter(s => s === 'needs_review' ? '' : 'needs_review')}
           className={`rounded-lg border-l-4 border-yellow-400 p-3 shadow-sm text-left ${statusFilter === 'needs_review' ? 'bg-yellow-100 ring-2 ring-yellow-400' : 'bg-yellow-50'}`}>
-          <div className="text-xs text-gray-500 uppercase">Review</div>
+          <div className="text-xs text-gray-500 uppercase">Pending Review</div>
           <div className="mt-1 text-lg font-bold text-yellow-700">{review}</div>
         </button>
         <button onClick={() => setStatusFilter(s => s === 'unmatched' ? '' : 'unmatched')}
@@ -120,7 +120,7 @@ export default function Transactions() {
                   <td className="px-3 py-2 text-xs text-gray-500 max-w-xs truncate">{r.memo}</td>
                   <td className="px-3 py-2">
                     <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${statusBadge[r.match_status] || statusBadge.unmatched}`}>
-                      {r.match_status?.replace('_', ' ')}
+                      {r.match_status === 'auto_matched' ? 'Matched' : r.match_status === 'needs_review' ? 'Pending Review' : r.match_status?.replace('_', ' ')}
                     </span>
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-gray-500">

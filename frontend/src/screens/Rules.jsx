@@ -50,7 +50,7 @@ export default function Rules() {
 
   return (
     <div>
-      <h2 className="text-xl font-semibold mb-4">Policy Rules</h2>
+      <h2 className="text-xl font-semibold mb-4">Policy Corrections</h2>
 
       <form onSubmit={addRule} className="mb-6 p-4 bg-white border border-gray-200 rounded-lg">
         <h3 className="text-sm font-medium mb-3">Add Rule</h3>
@@ -100,7 +100,7 @@ export default function Rules() {
       {loading ? (
         <p className="text-gray-500 text-sm">Loading...</p>
       ) : rows.length === 0 ? (
-        <p className="text-gray-500 text-sm">No policy rules yet. Add one above.</p>
+        <p className="text-gray-500 text-sm">No policy corrections yet. Add one above.</p>
       ) : (
         <DataTable data={rows} columns={columns} />
       )}

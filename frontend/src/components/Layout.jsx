@@ -5,43 +5,48 @@ const sections = [
     label: null,
     links: [
       { to: '/', label: 'Dashboard' },
+      { to: '/close', label: 'Month-End Close' },
     ],
   },
   {
     label: 'Reconciliation',
     links: [
       { to: '/statements', label: 'Statements' },
-      { to: '/transactions', label: 'Transactions' },
+      { to: '/transactions', label: 'Bank Transactions' },
       { to: '/results', label: 'Match Results' },
-      { to: '/exceptions', label: 'Exceptions' },
+      { to: '/exceptions', label: 'Exception Queue' },
       { to: '/aging', label: 'Aging Analysis' },
-      { to: '/rules', label: 'Rules' },
-      { to: '/splits', label: 'Split Rules' },
     ],
   },
   {
     label: 'Accounting',
     links: [
+      { to: '/revenue', label: 'Revenue' },
       { to: '/accruals', label: 'Accruals' },
       { to: '/journal', label: 'Journal / GL' },
-      { to: '/revenue', label: 'Revenue' },
-      { to: '/producers', label: 'Producers' },
-      { to: '/netting', label: 'Netting' },
-      { to: '/carriers', label: 'Carrier Scorecard' },
+      { to: '/exports', label: 'Exports' },
     ],
   },
   {
-    label: 'Operations',
+    label: 'Compensation',
     links: [
-      { to: '/close', label: 'Month-End Close' },
-      { to: '/mappings', label: 'Carrier Mappings' },
-      { to: '/run-comparison', label: 'Run Comparison' },
+      { to: '/producers', label: 'Producers' },
+      { to: '/splits', label: 'Comp Plans' },
+      { to: '/netting', label: 'Net Payouts' },
+    ],
+  },
+  {
+    label: 'Configuration',
+    links: [
+      { to: '/rules', label: 'Policy Corrections' },
+      { to: '/mappings', label: 'Carrier Formats' },
+      { to: '/carriers', label: 'Carrier Scorecard' },
     ],
   },
   {
     label: 'Admin',
     links: [
-      { to: '/exports', label: 'Exports' },
+      { to: '/run-comparison', label: 'Audit Comparison' },
       { to: '/audit', label: 'Audit Trail' },
     ],
   },

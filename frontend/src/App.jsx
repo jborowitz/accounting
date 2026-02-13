@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Layout from './components/Layout'
 import Dashboard from './screens/Dashboard'
 import MatchResults from './screens/MatchResults'
@@ -48,6 +48,16 @@ export default function App() {
           <Route path="close" element={<Close />} />
           <Route path="mappings" element={<CarrierMappings />} />
           <Route path="run-comparison" element={<RunComparison />} />
+          <Route path="*" element={
+            <div className="flex flex-col items-center justify-center py-20">
+              <div className="text-6xl font-bold text-gray-200 mb-4">404</div>
+              <h2 className="text-lg font-semibold text-gray-700 mb-2">Page not found</h2>
+              <p className="text-sm text-gray-500 mb-6">The page you're looking for doesn't exist.</p>
+              <Link to="/" className="px-4 py-2 bg-blue-600 text-white rounded text-sm font-medium hover:bg-blue-700">
+                Go to Dashboard
+              </Link>
+            </div>
+          } />
         </Route>
       </Routes>
     </BrowserRouter>

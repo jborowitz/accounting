@@ -288,6 +288,75 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 
 ---
 
+## P0.5 — UX / Navigation Overhaul
+
+_Full-site UX review identified these issues. Jason is an EVP Finance — the app needs to speak his language and match his mental model._
+
+### 4.1 Sidebar Navigation Restructure
+**Status**: `done` | **Effort**: S
+
+19 nav items across 5 sections with no clear priority. Month-End Close (Jason's #1 screen) is the 15th item. Restructure to match Jason's workflow:
+
+```
+Dashboard
+Month-End Close
+
+Reconciliation
+  Statements · Transactions · Match Results · Exceptions · Aging Analysis
+
+Accounting
+  Revenue · Accruals · Journal / GL · Exports
+
+Compensation
+  Producers · Comp Plans & Netting
+
+Configuration
+  Policy Corrections · Carrier Formats · Carrier Scorecard
+
+Admin
+  Audit Comparison · Audit Trail
+```
+
+Also add a "Triage" nav link that drops into the first open exception's Review page — makes the "wow" feature (side-by-side PDF) discoverable from the sidebar.
+
+### 4.2 Terminology Cleanup
+**Status**: `done` | **Effort**: S
+
+Replace developer/ops jargon with finance-friendly language across all screens:
+
+| Current | New |
+|---|---|
+| "Run Matching" button | "Reconcile" |
+| "Background Recon" button | "Auto-Resolve" |
+| `auto_matched` in UI | "Matched" |
+| `needs_review` in UI | "Pending Review" |
+| "Split Rules" nav/title | "Comp Plans" |
+| "Netting" nav/title | merged into Comp Plans |
+| "Rules" nav/title | "Policy Corrections" |
+| "Carrier Mappings" nav/title | "Carrier Formats" |
+| "Run Comparison" nav/title | "Audit Comparison" |
+| "LOB" in tables | "Line of Business" |
+| Status dropdown raw enums | Formatted labels |
+
+### 4.3 Dashboard Close Status Card
+**Status**: `done` | **Effort**: S
+
+Jason's first question is "are we ready to close?" Add a prominent close-readiness card to the Dashboard (progress ring + "4/6 steps complete" + link to Close screen). Should be the first thing he sees.
+
+### 4.4 Group Compensation Screens (Reduce Fragmentation)
+**Status**: `done` | **Effort**: S
+
+Producers, Netting, and Splits are 3 screens for producer comp. An analyst asking "what does Producer X get paid?" checks all three. Merge Netting into Splits as a tab → rename to "Comp Plans & Netting." Keep Producers as a separate summary view.
+
+### 4.5 fmt() Bug Fix + Minor Polish
+**Status**: `done` | **Effort**: S
+
+- Dashboard `fmt()` prepends minus sign to all values (including positive) — fix
+- Add 404 catch-all route (currently shows blank page for bad URLs)
+- Add basic error state for failed API calls (currently shows "Loading..." forever)
+
+---
+
 ## PDF Data Flow Coverage Map
 
 ### Flow A: Statement + Cash → Revenue Recognition
@@ -340,12 +409,11 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 
 ## What Makes a Compelling Demo (Updated Priority Stack)
 
-**All PDF data flows, Section 5 areas, and PDF-critical gaps are covered.** Both Flow A (9/9) and Flow B (5/5) are complete. Section 0 (close), Section 3 (exception taxonomy), and Section 5 (mappings, recalc) all addressed. Remaining items are polish:
+**All PDF data flows, Section 5 areas, and PDF-critical gaps are covered.** Both Flow A (9/9) and Flow B (5/5) are complete. Section 0 (close), Section 3 (exception taxonomy), and Section 5 (mappings, recalc) all addressed.
 
-1. **3.14 Carrier Payables** — last Comulate pillar gap, but heavy lift and less relevant to Jason's immediate pain.
-2. **3.5 Batch Exception Resolution** — multi-select + bulk actions in exception queue.
-3. **3.6 Smart Rule Suggestions** — auto-suggest rules from analyst resolution patterns.
-4. **3.7 AMS Data Quality Prompts** — inline correction suggestions.
-5. **3.8 Multi-Period Data** — 3-6 months of data for trend analysis.
-6. **3.9 Guided Demo Walkthrough** — overlay tour for new visitors.
-7. **3.15 Notifications** — toast notifications for key events.
+**Current priority: UX overhaul** — the features are built, now make them coherent for a finance executive:
+
+1. **4.1–4.5 UX Overhaul** — nav restructure, terminology, dashboard close card, merge netting, bug fixes. DO THIS FIRST.
+2. **3.9 Guided Demo Walkthrough** — overlay tour for new visitors. Much more effective after UX cleanup.
+3. **3.14 Carrier Payables** — last Comulate pillar gap, heavy lift.
+4. **3.5–3.8, 3.15** — batch resolution, smart rules, AMS prompts, multi-period, notifications — nice-to-have polish.

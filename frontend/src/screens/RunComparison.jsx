@@ -25,7 +25,7 @@ export default function RunComparison() {
   if (!data.available) {
     return (
       <div>
-        <h2 className="text-xl font-semibold mb-4">Run Comparison</h2>
+        <h2 className="text-xl font-semibold mb-4">Audit Comparison</h2>
         <div className="p-6 bg-gray-50 rounded-lg border border-gray-200 text-center">
           <p className="text-gray-600 mb-2">{data.message}</p>
           <button onClick={() => navigate('/')}
@@ -47,8 +47,8 @@ export default function RunComparison() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h2 className="text-xl font-semibold">Recalculation Comparison</h2>
-          <p className="text-sm text-gray-500">Comparing two most recent match runs</p>
+          <h2 className="text-xl font-semibold">Audit Comparison</h2>
+          <p className="text-sm text-gray-500">Comparing two most recent reconciliation runs</p>
         </div>
       </div>
 

@@ -31,8 +31,9 @@ function Card({ label, value, accent, onClick }) {
 
 function fmt(n) {
   if (n == null) return '—'
-  const v = Math.abs(Number(n))
-  return `−$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+  const v = Number(n)
+  if (v < 0) return `-$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+  return `$${v.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
 }
 
 export default function Dashboard() {
@@ -42,12 +43,14 @@ export default function Dashboard() {
   const [lastResult, setLastResult] = useState(null)
   const [bgResolving, setBgResolving] = useState(false)
   const [bgResult, setBgResult] = useState(null)
+  const [closeStatus, setCloseStatus] = useState(null)
   const navigate = useNavigate()
 
   const load = useCallback(async () => {
-    const [s, r] = await Promise.all([api.getSummary(), api.listMatchRuns(10)])
+    const [s, r, c] = await Promise.all([api.getSummary(), api.listMatchRuns(10), api.getCloseStatus().catch(() => null)])
     setSummary(s)
     setRuns(r.rows)
+    setCloseStatus(c)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -83,7 +86,7 @@ export default function Dashboard() {
               disabled={bgResolving}
               className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 disabled:opacity-50"
             >
-              {bgResolving ? 'Resolving...' : 'Background Recon'}
+              {bgResolving ? 'Resolving...' : 'Auto-Resolve'}
             </button>
           )}
           <button
@@ -91,10 +94,43 @@ export default function Dashboard() {
             disabled={running}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
           >
-            {running ? 'Running...' : 'Run Matching'}
+            {running ? 'Reconciling...' : 'Reconcile'}
           </button>
         </div>
       </div>
+
+      {/* Close readiness banner */}
+      {closeStatus && (
+        <button
+          onClick={() => navigate('/close')}
+          className={`w-full mb-6 p-4 rounded-lg border-l-4 flex items-center justify-between hover:shadow-md transition-shadow ${
+            closeStatus.overall_pct >= 100
+              ? 'border-green-500 bg-green-50'
+              : closeStatus.overall_pct >= 60
+              ? 'border-amber-500 bg-amber-50'
+              : 'border-red-500 bg-red-50'
+          }`}
+        >
+          <div className="flex items-center gap-4">
+            <div className={`w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white ${
+              closeStatus.overall_pct >= 100 ? 'bg-green-500' : closeStatus.overall_pct >= 60 ? 'bg-amber-500' : 'bg-red-500'
+            }`}>
+              {closeStatus.overall_pct}%
+            </div>
+            <div className="text-left">
+              <div className="text-sm font-semibold">
+                {closeStatus.overall_pct >= 100 ? 'Ready to Close' : `${closeStatus.completed_steps}/${closeStatus.total_steps} Close Steps Complete`}
+              </div>
+              <div className="text-xs text-gray-500">Period {closeStatus.period}
+                {closeStatus.blockers?.length > 0 && ` · ${closeStatus.blockers.length} blocking item${closeStatus.blockers.length > 1 ? 's' : ''}`}
+              </div>
+            </div>
+          </div>
+          <svg className="w-5 h-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
 
       {summary && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
@@ -102,9 +138,9 @@ export default function Dashboard() {
             onClick={() => navigate('/statements')} />
           <Card label="Bank Rows" value={summary.bank_rows} accent="gray"
             onClick={() => navigate('/transactions')} />
-          <Card label="Auto-Matched" value={summary.status_breakdown?.auto_matched} accent="green"
+          <Card label="Matched" value={summary.status_breakdown?.auto_matched} accent="green"
             onClick={() => navigate('/results?status=auto_matched')} />
-          <Card label="Needs Review" value={summary.status_breakdown?.needs_review} accent="yellow"
+          <Card label="Pending Review" value={summary.status_breakdown?.needs_review} accent="yellow"
             onClick={() => navigate('/exceptions')} />
           <Card label="Unmatched" value={summary.status_breakdown?.unmatched} accent="red"
             onClick={() => navigate('/results?status=unmatched')} />
@@ -124,8 +160,8 @@ export default function Dashboard() {
       {runs.length > 0 && (() => {
         const latest = runs[0]
         const chartData = [
-          { name: 'Auto-Matched', value: latest.auto_matched || 0, color: '#22c55e' },
-          { name: 'Needs Review', value: latest.needs_review || 0, color: '#eab308' },
+          { name: 'Matched', value: latest.auto_matched || 0, color: '#22c55e' },
+          { name: 'Pending Review', value: latest.needs_review || 0, color: '#eab308' },
           { name: 'Unmatched', value: latest.unmatched || 0, color: '#ef4444' },
         ].filter(d => d.value > 0)
         const total = chartData.reduce((s, d) => s + d.value, 0)
@@ -144,7 +180,7 @@ export default function Dashboard() {
                       dataKey="value"
                       stroke="none"
                       onClick={(entry) => {
-                        const statusMap = { 'Auto-Matched': 'auto_matched', 'Needs Review': 'needs_review', 'Unmatched': 'unmatched' }
+                        const statusMap = { 'Matched': 'auto_matched', 'Pending Review': 'needs_review', 'Unmatched': 'unmatched' }
                         const s = statusMap[entry.name]
                         if (s === 'needs_review') navigate('/exceptions')
                         else if (s) navigate(`/results?status=${s}`)
@@ -193,9 +229,9 @@ export default function Dashboard() {
         </div>
       )}
 
-      <h3 className="text-lg font-medium mb-3">Recent Match Runs</h3>
+      <h3 className="text-lg font-medium mb-3">Recent Reconciliation Runs</h3>
       {runs.length === 0 ? (
-        <p className="text-gray-500 text-sm">No match runs yet. Click "Run Matching" to start.</p>
+        <p className="text-gray-500 text-sm">No reconciliation runs yet. Click "Reconcile" to start.</p>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200">
           <table className="min-w-full text-sm">
