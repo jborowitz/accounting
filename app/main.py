@@ -16,18 +16,24 @@ from pydantic import BaseModel
 
 from app.matching import run_matching
 from app.persistence import (
+    create_adjustment,
+    delete_split_rule,
     init_db,
+    list_adjustments,
     list_audit_events,
     list_exceptions,
     list_match_results,
     list_match_runs,
     list_policy_rules,
+    list_rule_versions,
+    list_split_rules,
     list_statement_metadata,
     load_policy_overrides,
     log_audit_event,
     resolve_exception,
     save_match_run,
     upsert_policy_rule,
+    upsert_split_rule,
     upsert_statement_metadata,
 )
 
@@ -57,6 +63,27 @@ class UpsertPolicyRuleRequest(BaseModel):
     source_policy_number: str
     target_policy_number: str
     note: str | None = None
+
+
+class UpsertSplitRuleRequest(BaseModel):
+    producer_id: str
+    split_pct: float = 100.0
+    house_pct: float = 0.0
+    carrier: str | None = None
+    lob: str | None = None
+    fee_type: str = "percentage"
+    fee_amount: float = 0.0
+    effective_from: str | None = None
+    effective_to: str | None = None
+    note: str | None = None
+
+
+class CreateAdjustmentRequest(BaseModel):
+    producer_id: str
+    adj_type: str
+    amount: float
+    description: str | None = None
+    period: str | None = None
 
 
 def count_rows(path: Path) -> int:
@@ -871,6 +898,315 @@ def api_producers() -> JSONResponse:
     }
 
     return JSONResponse({"producers": producers, "totals": totals})
+
+
+# ---------------------------------------------------------------------------
+# Deal/Split rules (3.2)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/splits")
+def api_list_splits(producer_id: str | None = None) -> JSONResponse:
+    rows = list_split_rules(DB_PATH, producer_id=producer_id)
+    return JSONResponse({"rows": rows, "count": len(rows)})
+
+
+@app.post("/api/v1/demo/splits")
+def api_upsert_split(payload: UpsertSplitRuleRequest) -> JSONResponse:
+    row = upsert_split_rule(
+        DB_PATH,
+        producer_id=payload.producer_id,
+        split_pct=payload.split_pct,
+        house_pct=payload.house_pct,
+        carrier=payload.carrier,
+        lob=payload.lob,
+        fee_type=payload.fee_type,
+        fee_amount=payload.fee_amount,
+        effective_from=payload.effective_from,
+        effective_to=payload.effective_to,
+        note=payload.note,
+    )
+    log_audit_event(
+        DB_PATH, event_type="split_rule", action="upsert",
+        entity_type="split_rule", entity_id=payload.producer_id, actor="analyst",
+        detail=f"{payload.producer_id}: {payload.split_pct}% producer / {payload.house_pct}% house",
+        new_value=f"{payload.split_pct}/{payload.house_pct}",
+    )
+    return JSONResponse({"ok": True, "rule": row})
+
+
+@app.delete("/api/v1/demo/splits/{rule_id}")
+def api_delete_split(rule_id: int) -> JSONResponse:
+    ok = delete_split_rule(DB_PATH, rule_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    log_audit_event(
+        DB_PATH, event_type="split_rule", action="deleted",
+        entity_type="split_rule", entity_id=str(rule_id), actor="analyst",
+    )
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/v1/demo/splits/seed")
+def api_seed_splits() -> JSONResponse:
+    """Seed demo split rules for all producers."""
+    import random
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+    producers = sorted(set(r.get("producer_id", "") for r in expected_rows if r.get("producer_id")))
+
+    seeded = 0
+    for pid in producers:
+        # Default split: producer gets 60-85%, house gets the rest
+        split = random.choice([60, 65, 70, 75, 80, 85])
+        upsert_split_rule(DB_PATH, producer_id=pid, split_pct=float(split), house_pct=float(100 - split),
+                          note="Default split (seeded)")
+        seeded += 1
+
+        # Some producers get carrier-specific overrides
+        if random.random() < 0.4:
+            carrier = random.choice(["Summit National", "Wilson Mutual", "Northfield Specialty"])
+            override_split = random.choice([55, 60, 65, 70, 90])
+            upsert_split_rule(DB_PATH, producer_id=pid, split_pct=float(override_split),
+                              house_pct=float(100 - override_split), carrier=carrier,
+                              note=f"Carrier override for {carrier} (seeded)")
+            seeded += 1
+
+    return JSONResponse({"ok": True, "seeded": seeded})
+
+
+# ---------------------------------------------------------------------------
+# Netting & Adjustments (3.3)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/adjustments")
+def api_list_adjustments(producer_id: str | None = None) -> JSONResponse:
+    rows = list_adjustments(DB_PATH, producer_id=producer_id)
+    return JSONResponse({"rows": rows, "count": len(rows)})
+
+
+@app.post("/api/v1/demo/adjustments")
+def api_create_adjustment(payload: CreateAdjustmentRequest) -> JSONResponse:
+    row = create_adjustment(
+        DB_PATH,
+        producer_id=payload.producer_id,
+        adj_type=payload.adj_type,
+        amount=payload.amount,
+        description=payload.description,
+        period=payload.period,
+    )
+    log_audit_event(
+        DB_PATH, event_type="adjustment", action="created",
+        entity_type="adjustment", entity_id=payload.producer_id, actor="analyst",
+        detail=f"{payload.adj_type}: ${payload.amount:.2f} for {payload.producer_id}",
+    )
+    return JSONResponse({"ok": True, "adjustment": row})
+
+
+@app.post("/api/v1/demo/adjustments/seed")
+def api_seed_adjustments() -> JSONResponse:
+    """Seed demo adjustments: clawback offsets, chargebacks, draws."""
+    import random
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+    producers = sorted(set(r.get("producer_id", "") for r in expected_rows if r.get("producer_id")))
+
+    seeded = 0
+    adj_types = [
+        ("clawback_offset", -200, -50, "Clawback offset from carrier reversal"),
+        ("chargeback", -500, -100, "E&O chargeback"),
+        ("draw_advance", -1000, -300, "Monthly draw advance"),
+        ("draw_repayment", 200, 800, "Draw repayment from commissions"),
+        ("bonus", 500, 2000, "Quarterly production bonus"),
+    ]
+
+    for pid in producers:
+        # Each producer gets 1-3 adjustments
+        for _ in range(random.randint(1, 3)):
+            adj_type, lo, hi, desc = random.choice(adj_types)
+            amount = round(random.uniform(lo, hi), 2)
+            create_adjustment(DB_PATH, producer_id=pid, adj_type=adj_type,
+                              amount=amount, description=desc, period="2026-01")
+            seeded += 1
+
+    return JSONResponse({"ok": True, "seeded": seeded})
+
+
+@app.get("/api/v1/demo/netting")
+def api_netting() -> JSONResponse:
+    """Net position per producer: gross commission - clawbacks - adjustments = net payout."""
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+    adjustments = list_adjustments(DB_PATH)
+    splits = list_split_rules(DB_PATH)
+
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_map: dict[str, str] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT line_id, status FROM match_results WHERE run_id = ?", (run_id,),
+            ).fetchall()
+            match_map = {r["line_id"]: r["status"] for r in rows}
+
+    # Build split lookup: (producer, carrier) → split_pct, default (producer, None) → split_pct
+    split_lookup: dict[tuple[str, str | None], float] = {}
+    for s in splits:
+        key = (s["producer_id"], s.get("carrier"))
+        split_lookup[key] = s["split_pct"]
+
+    # Aggregate by producer
+    producer_agg: dict[str, dict] = {}
+    for i, stmt in enumerate(stmt_rows):
+        ams = expected_rows[i] if i < len(expected_rows) else {}
+        pid = ams.get("producer_id", "Unknown")
+        commission = float(stmt.get("gross_commission", 0))
+        status = match_map.get(stmt["line_id"], "unknown")
+        carrier = stmt.get("carrier_name", "")
+
+        if pid not in producer_agg:
+            producer_agg[pid] = {
+                "producer_id": pid,
+                "gross_commission": 0.0,
+                "clawbacks": 0.0,
+                "matched_commission": 0.0,
+                "producer_share": 0.0,
+                "house_share": 0.0,
+                "adjustments_total": 0.0,
+                "net_payout": 0.0,
+                "lines": 0,
+            }
+        p = producer_agg[pid]
+        p["gross_commission"] += commission
+        p["lines"] += 1
+
+        if stmt.get("txn_type") == "clawback":
+            p["clawbacks"] += commission
+
+        if status in ("auto_matched", "resolved"):
+            p["matched_commission"] += commission
+            # Apply split
+            split_pct = split_lookup.get((pid, carrier), split_lookup.get((pid, None), 100.0))
+            p["producer_share"] += commission * split_pct / 100.0
+            p["house_share"] += commission * (100.0 - split_pct) / 100.0
+
+    # Apply adjustments
+    adj_by_producer: dict[str, list] = {}
+    for adj in adjustments:
+        adj_by_producer.setdefault(adj["producer_id"], []).append(adj)
+
+    for pid, p in producer_agg.items():
+        adjs = adj_by_producer.get(pid, [])
+        adj_total = sum(a["amount"] for a in adjs)
+        p["adjustments_total"] = round(adj_total, 2)
+        p["net_payout"] = round(p["producer_share"] + adj_total, 2)
+        p["producer_share"] = round(p["producer_share"], 2)
+        p["house_share"] = round(p["house_share"], 2)
+        p["gross_commission"] = round(p["gross_commission"], 2)
+        p["clawbacks"] = round(p["clawbacks"], 2)
+        p["matched_commission"] = round(p["matched_commission"], 2)
+        p["adjustment_details"] = adjs
+
+    producers = sorted(producer_agg.values(), key=lambda x: x["gross_commission"], reverse=True)
+
+    totals = {
+        "gross_commission": round(sum(p["gross_commission"] for p in producers), 2),
+        "clawbacks": round(sum(p["clawbacks"] for p in producers), 2),
+        "producer_share": round(sum(p["producer_share"] for p in producers), 2),
+        "house_share": round(sum(p["house_share"] for p in producers), 2),
+        "adjustments": round(sum(p["adjustments_total"] for p in producers), 2),
+        "net_payout": round(sum(p["net_payout"] for p in producers), 2),
+    }
+
+    return JSONResponse({"producers": producers, "totals": totals})
+
+
+# ---------------------------------------------------------------------------
+# Rule versions / versioning (3.4)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/rule-versions")
+def api_rule_versions(rule_type: str | None = None, rule_id: str | None = None) -> JSONResponse:
+    rows = list_rule_versions(DB_PATH, rule_type=rule_type, rule_id=rule_id)
+    return JSONResponse({"rows": rows, "count": len(rows)})
+
+
+@app.post("/api/v1/demo/rules/test")
+def api_test_rule_change(payload: UpsertSplitRuleRequest) -> JSONResponse:
+    """Test harness: simulate what would change if this split rule were applied to last month's results."""
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_map: dict[str, str] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                "SELECT line_id, status FROM match_results WHERE run_id = ?", (run_id,),
+            ).fetchall()
+            match_map = {r["line_id"]: r["status"] for r in rows}
+
+    # Current splits
+    current_splits = list_split_rules(DB_PATH, producer_id=payload.producer_id)
+    current_default = next((s["split_pct"] for s in current_splits
+                            if not s.get("carrier") and not s.get("lob")), 100.0)
+
+    # Calculate current vs proposed
+    affected_lines = []
+    total_current = 0.0
+    total_proposed = 0.0
+
+    for i, stmt in enumerate(stmt_rows):
+        ams = expected_rows[i] if i < len(expected_rows) else {}
+        if ams.get("producer_id") != payload.producer_id:
+            continue
+        status = match_map.get(stmt["line_id"], "unknown")
+        if status not in ("auto_matched", "resolved"):
+            continue
+
+        commission = float(stmt.get("gross_commission", 0))
+        carrier = stmt.get("carrier_name", "")
+
+        # Should this line be affected by the proposed rule?
+        matches_carrier = not payload.carrier or payload.carrier == carrier
+        matches_lob = not payload.lob or payload.lob == ams.get("lob", "")
+
+        current_pct = current_default
+        for s in current_splits:
+            if s.get("carrier") == carrier:
+                current_pct = s["split_pct"]
+                break
+
+        if matches_carrier and matches_lob:
+            proposed_pct = payload.split_pct
+        else:
+            proposed_pct = current_pct
+
+        current_share = commission * current_pct / 100.0
+        proposed_share = commission * proposed_pct / 100.0
+        total_current += current_share
+        total_proposed += proposed_share
+
+        if abs(current_share - proposed_share) > 0.01:
+            affected_lines.append({
+                "line_id": stmt["line_id"],
+                "policy_number": stmt["policy_number"],
+                "carrier": carrier,
+                "commission": round(commission, 2),
+                "current_pct": current_pct,
+                "proposed_pct": proposed_pct,
+                "current_share": round(current_share, 2),
+                "proposed_share": round(proposed_share, 2),
+                "delta": round(proposed_share - current_share, 2),
+            })
+
+    return JSONResponse({
+        "producer_id": payload.producer_id,
+        "affected_lines": len(affected_lines),
+        "current_total": round(total_current, 2),
+        "proposed_total": round(total_proposed, 2),
+        "delta": round(total_proposed - total_current, 2),
+        "lines": affected_lines[:50],
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -15,6 +15,8 @@ import Exports from './screens/Exports'
 import Producers from './screens/Producers'
 import Aging from './screens/Aging'
 import Carriers from './screens/Carriers'
+import Splits from './screens/Splits'
+import Netting from './screens/Netting'
 
 const basename = import.meta.env.VITE_BASE_PATH || '/'
 
@@ -38,6 +40,8 @@ export default function App() {
           <Route path="producers" element={<Producers />} />
           <Route path="aging" element={<Aging />} />
           <Route path="carriers" element={<Carriers />} />
+          <Route path="splits" element={<Splits />} />
+          <Route path="netting" element={<Netting />} />
         </Route>
       </Routes>
     </BrowserRouter>

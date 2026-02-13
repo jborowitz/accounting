@@ -87,4 +87,33 @@ export const api = {
 
   // Background reconciliation
   backgroundResolve: (count = 3) => request(`/api/v1/demo/background-resolve?count=${count}`, { method: 'POST' }),
+
+  // Split rules (3.2)
+  listSplits: (producerId) => {
+    const params = new URLSearchParams()
+    if (producerId) params.set('producer_id', producerId)
+    return request(`/api/v1/demo/splits?${params}`)
+  },
+  upsertSplit: (payload) => request('/api/v1/demo/splits', { method: 'POST', body: JSON.stringify(payload) }),
+  deleteSplit: (ruleId) => request(`/api/v1/demo/splits/${ruleId}`, { method: 'DELETE' }),
+  seedSplits: () => request('/api/v1/demo/splits/seed', { method: 'POST' }),
+
+  // Adjustments (3.3)
+  listAdjustments: (producerId) => {
+    const params = new URLSearchParams()
+    if (producerId) params.set('producer_id', producerId)
+    return request(`/api/v1/demo/adjustments?${params}`)
+  },
+  createAdjustment: (payload) => request('/api/v1/demo/adjustments', { method: 'POST', body: JSON.stringify(payload) }),
+  seedAdjustments: () => request('/api/v1/demo/adjustments/seed', { method: 'POST' }),
+  getNetting: () => request('/api/v1/demo/netting'),
+
+  // Rule versions (3.4)
+  listRuleVersions: (ruleType, ruleId) => {
+    const params = new URLSearchParams()
+    if (ruleType) params.set('rule_type', ruleType)
+    if (ruleId) params.set('rule_id', ruleId)
+    return request(`/api/v1/demo/rule-versions?${params}`)
+  },
+  testRuleChange: (payload) => request('/api/v1/demo/rules/test', { method: 'POST', body: JSON.stringify(payload) }),
 }

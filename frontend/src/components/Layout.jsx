@@ -16,6 +16,7 @@ const sections = [
       { to: '/exceptions', label: 'Exceptions' },
       { to: '/aging', label: 'Aging Analysis' },
       { to: '/rules', label: 'Rules' },
+      { to: '/splits', label: 'Split Rules' },
     ],
   },
   {
@@ -25,6 +26,7 @@ const sections = [
       { to: '/journal', label: 'Journal / GL' },
       { to: '/revenue', label: 'Revenue' },
       { to: '/producers', label: 'Producers' },
+      { to: '/netting', label: 'Netting' },
       { to: '/carriers', label: 'Carrier Scorecard' },
     ],
   },

@@ -180,7 +180,7 @@ Show commission attribution by producer:
 - This is the simplified version of Flow B's attribution step
 
 ### 3.2 Deal/Split Rules & Fee Schedules ⚠️ NEW
-**Status**: `todo` | **Effort**: L | **PDF Ref**: Flow B (Rules/Rate DB + Fee Engine)
+**Status**: `done` | **Effort**: L | **PDF Ref**: Flow B (Rules/Rate DB + Fee Engine)
 
 Configure how commission splits work:
 - Per-producer split percentages (e.g., 60/40 between producer and house)
@@ -190,7 +190,7 @@ Configure how commission splits work:
 - Powers the producer compensation calculations
 
 ### 3.3 Netting & Adjustments Layer ⚠️ NEW
-**Status**: `todo` | **Effort**: M | **PDF Ref**: Flow B (Netting & Adjustments)
+**Status**: `done` | **Effort**: M | **PDF Ref**: Flow B (Netting & Adjustments)
 
 Net clawbacks and adjustments against producer payouts:
 - Clawback offsets: if a producer earned $500 but has a $200 clawback, net payout is $300
@@ -199,7 +199,7 @@ Net clawbacks and adjustments against producer payouts:
 - Show net position per producer on compensation view
 
 ### 3.4 Rules Engine Versioning ⚠️ NEW
-**Status**: `todo` | **Effort**: M | **PDF Ref**: Section 5 (Commission logic)
+**Status**: `done` | **Effort**: M | **PDF Ref**: Section 5 (Commission logic)
 
 The current rules screen is basic. Add:
 - Version history: "Rule X was created on date, modified on date"
@@ -271,9 +271,9 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 | Step | Status | Backlog Item |
 |---|---|---|
 | AMS Policy/Commission Data | ✅ Partial | ams_expected.csv |
-| **Deal/Split Rules + Fee Schedules** | ❌ Gap | **3.2 (new)** |
+| **Deal/Split Rules + Fee Schedules** | ✅ Done | **3.2** |
 | **Gross Commission Attribution** | ✅ Done | **3.1** |
-| **Netting & Adjustments** | ❌ Gap | **3.3 (new)** |
+| **Netting & Adjustments** | ✅ Done | **3.3** |
 | **Payout File + Accrual File** | ✅ Done | **2.2** |
 
 ### Section 5: Where Systems Break
@@ -282,7 +282,7 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 |---|---|---|
 | Statement ingestion | ✅ Done | 1.3 |
 | Cash application | ✅ Done | Matching engine + human-in-the-loop |
-| Commission logic | ❌ Gap | **3.4 (new)** — rules versioning + test harness |
+| Commission logic | ✅ Done | **3.4** — rules versioning + test harness |
 | Accruals | ✅ Done | **1.6** |
 | Controls/audit | ✅ Done | **1.5** |
 

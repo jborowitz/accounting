@@ -70,6 +70,47 @@ def init_db(db_path: Path) -> None:
                 pdf_path TEXT
             );
 
+            CREATE TABLE IF NOT EXISTS split_rules (
+                rule_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                producer_id TEXT NOT NULL,
+                carrier TEXT,
+                lob TEXT,
+                split_pct REAL NOT NULL DEFAULT 100.0,
+                house_pct REAL NOT NULL DEFAULT 0.0,
+                fee_type TEXT DEFAULT 'percentage',
+                fee_amount REAL DEFAULT 0.0,
+                effective_from TEXT,
+                effective_to TEXT,
+                note TEXT,
+                version INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS rule_versions (
+                version_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                rule_type TEXT NOT NULL,
+                rule_id TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                changed_by TEXT NOT NULL DEFAULT 'analyst',
+                changed_at TEXT NOT NULL,
+                change_type TEXT NOT NULL,
+                old_value TEXT,
+                new_value TEXT,
+                detail TEXT
+            );
+
+            CREATE TABLE IF NOT EXISTS adjustments (
+                adj_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                producer_id TEXT NOT NULL,
+                adj_type TEXT NOT NULL,
+                amount REAL NOT NULL,
+                description TEXT,
+                period TEXT,
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS audit_events (
                 event_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -385,6 +426,165 @@ def list_statement_metadata(db_path: Path) -> list[dict[str, Any]]:
             """
         ).fetchall()
         return [dict(row) for row in rows]
+
+
+# ---------------------------------------------------------------------------
+# Split rules (3.2)
+# ---------------------------------------------------------------------------
+
+def upsert_split_rule(
+    db_path: Path,
+    producer_id: str,
+    split_pct: float,
+    house_pct: float,
+    carrier: str | None = None,
+    lob: str | None = None,
+    fee_type: str = "percentage",
+    fee_amount: float = 0.0,
+    effective_from: str | None = None,
+    effective_to: str | None = None,
+    note: str | None = None,
+) -> dict[str, Any]:
+    now = utc_now()
+    with get_conn(db_path) as conn:
+        # Check for existing rule to determine version
+        existing = conn.execute(
+            """SELECT rule_id, version FROM split_rules
+               WHERE producer_id = ? AND COALESCE(carrier,'') = COALESCE(?,'')
+               AND COALESCE(lob,'') = COALESCE(?,'')""",
+            (producer_id, carrier or '', lob or ''),
+        ).fetchone()
+
+        if existing:
+            new_version = existing["version"] + 1
+            old_row = dict(conn.execute("SELECT * FROM split_rules WHERE rule_id = ?", (existing["rule_id"],)).fetchone())
+            conn.execute(
+                """UPDATE split_rules SET split_pct=?, house_pct=?, fee_type=?, fee_amount=?,
+                   effective_from=?, effective_to=?, note=?, version=?, updated_at=?
+                   WHERE rule_id=?""",
+                (split_pct, house_pct, fee_type, fee_amount, effective_from, effective_to, note, new_version, now, existing["rule_id"]),
+            )
+            rule_id = existing["rule_id"]
+            # Log version
+            conn.execute(
+                """INSERT INTO rule_versions(rule_type, rule_id, version, changed_by, changed_at, change_type, old_value, new_value, detail)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                ("split_rule", str(rule_id), new_version, "analyst", now, "updated",
+                 f"split={old_row['split_pct']}%/house={old_row['house_pct']}%",
+                 f"split={split_pct}%/house={house_pct}%",
+                 note),
+            )
+        else:
+            cur = conn.execute(
+                """INSERT INTO split_rules(producer_id, carrier, lob, split_pct, house_pct,
+                   fee_type, fee_amount, effective_from, effective_to, note, version, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
+                (producer_id, carrier, lob, split_pct, house_pct, fee_type, fee_amount,
+                 effective_from, effective_to, note, now, now),
+            )
+            rule_id = cur.lastrowid
+            conn.execute(
+                """INSERT INTO rule_versions(rule_type, rule_id, version, changed_by, changed_at, change_type, new_value, detail)
+                   VALUES (?, ?, 1, ?, ?, ?, ?, ?)""",
+                ("split_rule", str(rule_id), "analyst", now, "created",
+                 f"split={split_pct}%/house={house_pct}%", note),
+            )
+
+        row = conn.execute("SELECT * FROM split_rules WHERE rule_id = ?", (rule_id,)).fetchone()
+        return dict(row) if row else {}
+
+
+def list_split_rules(db_path: Path, producer_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        if producer_id:
+            rows = conn.execute(
+                "SELECT * FROM split_rules WHERE producer_id = ? ORDER BY updated_at DESC LIMIT ?",
+                (producer_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM split_rules ORDER BY producer_id, carrier, lob LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def delete_split_rule(db_path: Path, rule_id: int) -> bool:
+    now = utc_now()
+    with get_conn(db_path) as conn:
+        row = conn.execute("SELECT * FROM split_rules WHERE rule_id = ?", (rule_id,)).fetchone()
+        if not row:
+            return False
+        conn.execute("DELETE FROM split_rules WHERE rule_id = ?", (rule_id,))
+        conn.execute(
+            """INSERT INTO rule_versions(rule_type, rule_id, version, changed_by, changed_at, change_type, old_value, detail)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            ("split_rule", str(rule_id), row["version"], "analyst", now, "deleted",
+             f"split={row['split_pct']}%/house={row['house_pct']}%", f"Deleted rule for {row['producer_id']}"),
+        )
+        return True
+
+
+# ---------------------------------------------------------------------------
+# Adjustments (3.3)
+# ---------------------------------------------------------------------------
+
+def create_adjustment(
+    db_path: Path,
+    producer_id: str,
+    adj_type: str,
+    amount: float,
+    description: str | None = None,
+    period: str | None = None,
+) -> dict[str, Any]:
+    now = utc_now()
+    with get_conn(db_path) as conn:
+        cur = conn.execute(
+            """INSERT INTO adjustments(producer_id, adj_type, amount, description, period, status, created_at)
+               VALUES (?, ?, ?, ?, ?, 'pending', ?)""",
+            (producer_id, adj_type, amount, description, period, now),
+        )
+        row = conn.execute("SELECT * FROM adjustments WHERE adj_id = ?", (cur.lastrowid,)).fetchone()
+        return dict(row) if row else {}
+
+
+def list_adjustments(db_path: Path, producer_id: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        if producer_id:
+            rows = conn.execute(
+                "SELECT * FROM adjustments WHERE producer_id = ? ORDER BY created_at DESC LIMIT ?",
+                (producer_id, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM adjustments ORDER BY created_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+
+# ---------------------------------------------------------------------------
+# Rule versions (3.4)
+# ---------------------------------------------------------------------------
+
+def list_rule_versions(db_path: Path, rule_type: str | None = None, rule_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    with get_conn(db_path) as conn:
+        if rule_type and rule_id:
+            rows = conn.execute(
+                "SELECT * FROM rule_versions WHERE rule_type = ? AND rule_id = ? ORDER BY version DESC LIMIT ?",
+                (rule_type, rule_id, limit),
+            ).fetchall()
+        elif rule_type:
+            rows = conn.execute(
+                "SELECT * FROM rule_versions WHERE rule_type = ? ORDER BY changed_at DESC LIMIT ?",
+                (rule_type, limit),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT * FROM rule_versions ORDER BY changed_at DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [dict(r) for r in rows]
 
 
 # ---------------------------------------------------------------------------
