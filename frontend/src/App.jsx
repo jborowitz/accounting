@@ -17,6 +17,9 @@ import Aging from './screens/Aging'
 import Carriers from './screens/Carriers'
 import Splits from './screens/Splits'
 import Netting from './screens/Netting'
+import Close from './screens/Close'
+import CarrierMappings from './screens/CarrierMappings'
+import RunComparison from './screens/RunComparison'
 
 const basename = import.meta.env.VITE_BASE_PATH || '/'
 
@@ -42,6 +45,9 @@ export default function App() {
           <Route path="carriers" element={<Carriers />} />
           <Route path="splits" element={<Splits />} />
           <Route path="netting" element={<Netting />} />
+          <Route path="close" element={<Close />} />
+          <Route path="mappings" element={<CarrierMappings />} />
+          <Route path="run-comparison" element={<RunComparison />} />
         </Route>
       </Routes>
     </BrowserRouter>

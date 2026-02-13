@@ -116,4 +116,13 @@ export const api = {
     return request(`/api/v1/demo/rule-versions?${params}`)
   },
   testRuleChange: (payload) => request('/api/v1/demo/rules/test', { method: 'POST', body: JSON.stringify(payload) }),
+
+  // Close dashboard (3.10)
+  getCloseStatus: () => request('/api/v1/demo/close-status'),
+
+  // Carrier mappings (3.11)
+  getCarrierMappings: () => request('/api/v1/demo/carrier-mappings'),
+
+  // Run comparison / recalc snapshots (3.13)
+  getRunComparison: () => request('/api/v1/demo/run-comparison'),
 }

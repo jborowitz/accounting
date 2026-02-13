@@ -1551,6 +1551,321 @@ def api_get_statement_pdf(statement_id: str) -> FileResponse:
     )
 
 
+# ---------------------------------------------------------------------------
+# Month-End Close Dashboard (3.10)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/close-status")
+def api_close_status() -> JSONResponse:
+    """Month-end close readiness: statements, matching, exceptions, accruals, journal."""
+    from datetime import date
+    from app.persistence import latest_run_id, get_conn
+
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    bank_rows = _read_csv(DATA_DIR / "raw/bank/bank_feed.csv")
+    expected_rows = _read_csv(DATA_DIR / "expected/ams_expected.csv")
+
+    # Statement coverage: unique statements received vs expected (3 carriers × ~4 statements each)
+    statements = list_statement_metadata(DB_PATH)
+    carriers = sorted(set(r["carrier_name"] for r in stmt_rows))
+    expected_statement_count = len(set(r["statement_id"] for r in stmt_rows))
+    received_statement_count = len(statements)
+
+    # Match run status
+    run_id = latest_run_id(DB_PATH)
+    match_stats = {"auto_matched": 0, "needs_review": 0, "unmatched": 0, "resolved": 0, "total": 0}
+    open_exceptions = 0
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            row = conn.execute(
+                """SELECT
+                    SUM(CASE WHEN status='auto_matched' THEN 1 ELSE 0 END) AS auto_matched,
+                    SUM(CASE WHEN status='needs_review' THEN 1 ELSE 0 END) AS needs_review,
+                    SUM(CASE WHEN status='unmatched' THEN 1 ELSE 0 END) AS unmatched,
+                    SUM(CASE WHEN status='resolved' THEN 1 ELSE 0 END) AS resolved,
+                    COUNT(*) AS total
+                FROM match_results WHERE run_id = ?""",
+                (run_id,),
+            ).fetchone()
+            if row:
+                match_stats = {k: int(row[k] or 0) for k in match_stats}
+            ex_row = conn.execute(
+                "SELECT COUNT(*) AS cnt FROM exceptions WHERE run_id = ? AND status = 'open'",
+                (run_id,),
+            ).fetchone()
+            open_exceptions = int(ex_row["cnt"]) if ex_row else 0
+
+    matched_total = match_stats["auto_matched"] + match_stats["resolved"]
+    match_pct = round(matched_total / match_stats["total"] * 100, 1) if match_stats["total"] else 0
+
+    # Cash coverage
+    total_statement_amount = sum(abs(float(r.get("gross_commission", 0))) for r in stmt_rows)
+    total_bank_amount = sum(abs(float(r.get("amount", 0))) for r in bank_rows)
+    cash_coverage_pct = round(total_bank_amount / total_statement_amount * 100, 1) if total_statement_amount else 0
+
+    # Accrual & journal status (check if audit events exist for these)
+    audit_rows = list_audit_events(DB_PATH, entity_type="journal", limit=1)
+    journal_posted = len(audit_rows) > 0
+
+    # Build checklist items
+    checklist = [
+        {
+            "id": "statements",
+            "label": "Carrier Statements Received",
+            "status": "complete" if received_statement_count >= expected_statement_count else "in_progress",
+            "detail": f"{received_statement_count}/{expected_statement_count} statements",
+            "pct": round(received_statement_count / expected_statement_count * 100) if expected_statement_count else 0,
+        },
+        {
+            "id": "matching",
+            "label": "Matching Engine Run",
+            "status": "complete" if run_id else "pending",
+            "detail": f"{matched_total} matched of {match_stats['total']}" if run_id else "No match run yet",
+            "pct": match_pct if run_id else 0,
+        },
+        {
+            "id": "cash",
+            "label": "Cash Application",
+            "status": "complete" if cash_coverage_pct >= 95 else "in_progress" if cash_coverage_pct > 0 else "pending",
+            "detail": f"{cash_coverage_pct}% cash coverage",
+            "pct": min(cash_coverage_pct, 100),
+        },
+        {
+            "id": "exceptions",
+            "label": "Exception Resolution",
+            "status": "complete" if open_exceptions == 0 and run_id else "in_progress" if run_id else "pending",
+            "detail": f"{open_exceptions} exceptions remaining" if run_id else "Waiting for match run",
+            "pct": round((1 - open_exceptions / max(match_stats["needs_review"] + match_stats["unmatched"], 1)) * 100) if run_id else 0,
+        },
+        {
+            "id": "accruals",
+            "label": "Accruals Calculated",
+            "status": "complete" if run_id else "pending",
+            "detail": "Accruals auto-calculated from match results" if run_id else "Waiting for match run",
+            "pct": 100 if run_id else 0,
+        },
+        {
+            "id": "journal",
+            "label": "Journal Posted to GL",
+            "status": "complete" if journal_posted else "pending",
+            "detail": "GL posting confirmed" if journal_posted else "Awaiting GL posting",
+            "pct": 100 if journal_posted else 0,
+        },
+    ]
+
+    completed = sum(1 for c in checklist if c["status"] == "complete")
+    overall_pct = round(completed / len(checklist) * 100)
+
+    # Blocking items
+    blockers = []
+    if open_exceptions > 0:
+        blockers.append(f"{open_exceptions} open exceptions need resolution")
+    if not run_id:
+        blockers.append("No match run executed yet — run matching first")
+    if not journal_posted:
+        blockers.append("Journal entries not yet posted to GL")
+    for carrier in carriers:
+        carrier_stmts = [s for s in statements if s["carrier_name"] == carrier]
+        expected_for_carrier = len(set(r["statement_id"] for r in stmt_rows if r["carrier_name"] == carrier))
+        if len(carrier_stmts) < expected_for_carrier:
+            blockers.append(f"{carrier}: {len(carrier_stmts)}/{expected_for_carrier} statements received")
+
+    return JSONResponse({
+        "period": "2026-01",
+        "overall_pct": overall_pct,
+        "completed_steps": completed,
+        "total_steps": len(checklist),
+        "checklist": checklist,
+        "blockers": blockers,
+        "summary": {
+            "statements": received_statement_count,
+            "statement_lines": len(stmt_rows),
+            "bank_transactions": len(bank_rows),
+            "match_pct": match_pct,
+            "open_exceptions": open_exceptions,
+            "cash_coverage_pct": cash_coverage_pct,
+            "journal_posted": journal_posted,
+        },
+    })
+
+
+# ---------------------------------------------------------------------------
+# Carrier Field Mapping Templates (3.11)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/carrier-mappings")
+def api_carrier_mappings() -> JSONResponse:
+    """Per-carrier field mapping configuration showing how statement fields map to schema."""
+    mappings = [
+        {
+            "carrier": "Summit National",
+            "format": "PDF — Formal corporate layout",
+            "date_format": "MM/DD/YYYY",
+            "name_format": "First Last",
+            "field_mappings": [
+                {"source_column": "Policy No.", "target_field": "policy_number", "confidence": 0.98},
+                {"source_column": "Named Insured", "target_field": "insured_name", "confidence": 0.92},
+                {"source_column": "Eff. Date", "target_field": "effective_date", "confidence": 0.95},
+                {"source_column": "Written Prem", "target_field": "written_premium", "confidence": 0.99},
+                {"source_column": "Comm Amt", "target_field": "gross_commission", "confidence": 0.97},
+                {"source_column": "Trans Type", "target_field": "txn_type", "confidence": 0.94},
+            ],
+            "avg_confidence": 0.96,
+            "known_issues": ["Commission sometimes rounded to nearest dollar", "Date column occasionally blank for endorsements"],
+            "sample_count": 0,
+        },
+        {
+            "carrier": "Wilson Mutual",
+            "format": "PDF — Compact spreadsheet style",
+            "date_format": "DD-Mon-YYYY",
+            "name_format": "First Last",
+            "field_mappings": [
+                {"source_column": "POL#", "target_field": "policy_number", "confidence": 0.97},
+                {"source_column": "INSURED", "target_field": "insured_name", "confidence": 0.88},
+                {"source_column": "EFF DT", "target_field": "effective_date", "confidence": 0.93},
+                {"source_column": "PREM", "target_field": "written_premium", "confidence": 0.98},
+                {"source_column": "COMM", "target_field": "gross_commission", "confidence": 0.96},
+                {"source_column": "TYPE", "target_field": "txn_type", "confidence": 0.91},
+            ],
+            "avg_confidence": 0.94,
+            "known_issues": ["Insured name sometimes uses 'Last, First' format", "Abbreviates carrier name in bank remittance"],
+            "sample_count": 0,
+        },
+        {
+            "carrier": "Northfield Specialty",
+            "format": "PDF — Legacy/monospace layout",
+            "date_format": "YYYY-MM-DD",
+            "name_format": "Last, First (legacy)",
+            "field_mappings": [
+                {"source_column": "POLICY", "target_field": "policy_number", "confidence": 0.95},
+                {"source_column": "NAME", "target_field": "insured_name", "confidence": 0.82},
+                {"source_column": "DATE", "target_field": "effective_date", "confidence": 0.90},
+                {"source_column": "PREMIUM", "target_field": "written_premium", "confidence": 0.96},
+                {"source_column": "COMMISSION", "target_field": "gross_commission", "confidence": 0.93},
+                {"source_column": "TXN", "target_field": "txn_type", "confidence": 0.88},
+            ],
+            "avg_confidence": 0.91,
+            "known_issues": [
+                "Legacy Courier font causes OCR issues on scanned documents",
+                "Name always in 'Last, First' format — needs normalization",
+                "Slight page rotation on scanned PDFs reduces confidence",
+            ],
+            "sample_count": 0,
+        },
+    ]
+
+    # Enrich with actual line counts
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    for m in mappings:
+        m["sample_count"] = len([r for r in stmt_rows if r["carrier_name"] == m["carrier"]])
+
+    return JSONResponse({"mappings": mappings})
+
+
+# ---------------------------------------------------------------------------
+# Recalculation Snapshots (3.13)
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/run-comparison")
+def api_run_comparison() -> JSONResponse:
+    """Compare two most recent match runs to show what changed."""
+    from app.persistence import get_conn
+
+    runs = list_match_runs(DB_PATH, limit=10)
+    if len(runs) < 2:
+        return JSONResponse({
+            "available": False,
+            "message": "Need at least 2 match runs to compare. Run matching multiple times.",
+            "runs": runs,
+        })
+
+    run_a = runs[1]  # older
+    run_b = runs[0]  # newer
+
+    with get_conn(DB_PATH) as conn:
+        rows_a = conn.execute(
+            "SELECT line_id, status, confidence, reason, matched_bank_txn_id FROM match_results WHERE run_id = ?",
+            (run_a["run_id"],),
+        ).fetchall()
+        rows_b = conn.execute(
+            "SELECT line_id, status, confidence, reason, matched_bank_txn_id FROM match_results WHERE run_id = ?",
+            (run_b["run_id"],),
+        ).fetchall()
+
+    map_a = {r["line_id"]: dict(r) for r in rows_a}
+    map_b = {r["line_id"]: dict(r) for r in rows_b}
+
+    # Compute deltas
+    changes = []
+    status_transitions = Counter()
+    confidence_deltas = []
+
+    all_lines = set(map_a.keys()) | set(map_b.keys())
+    for line_id in sorted(all_lines):
+        a = map_a.get(line_id)
+        b = map_b.get(line_id)
+
+        if a and b:
+            if a["status"] != b["status"] or abs((a["confidence"] or 0) - (b["confidence"] or 0)) > 0.001:
+                transition = f"{a['status']} → {b['status']}"
+                status_transitions[transition] += 1
+                conf_delta = (b["confidence"] or 0) - (a["confidence"] or 0)
+                confidence_deltas.append(conf_delta)
+
+                explanation = []
+                if a["status"] != b["status"]:
+                    explanation.append(f"Status: {a['status']} → {b['status']}")
+                if a["reason"] != b["reason"]:
+                    explanation.append(f"Reason: {a['reason']} → {b['reason']}")
+                if abs(conf_delta) > 0.001:
+                    explanation.append(f"Confidence: {a['confidence']:.1%} → {b['confidence']:.1%}")
+                if a.get("matched_bank_txn_id") != b.get("matched_bank_txn_id"):
+                    explanation.append(f"Bank txn: {a.get('matched_bank_txn_id', 'none')} → {b.get('matched_bank_txn_id', 'none')}")
+
+                changes.append({
+                    "line_id": line_id,
+                    "old_status": a["status"],
+                    "new_status": b["status"],
+                    "old_confidence": a["confidence"],
+                    "new_confidence": b["confidence"],
+                    "confidence_delta": round(conf_delta, 4),
+                    "old_reason": a["reason"],
+                    "new_reason": b["reason"],
+                    "explanation": "; ".join(explanation),
+                })
+        elif b and not a:
+            changes.append({
+                "line_id": line_id,
+                "old_status": None,
+                "new_status": b["status"],
+                "old_confidence": None,
+                "new_confidence": b["confidence"],
+                "confidence_delta": None,
+                "old_reason": None,
+                "new_reason": b["reason"],
+                "explanation": f"New line in run B: {b['status']}",
+            })
+
+    # Summary stats
+    improved = len([c for c in changes if c["old_status"] in ("needs_review", "unmatched") and c["new_status"] in ("auto_matched", "resolved")])
+    regressed = len([c for c in changes if c["old_status"] in ("auto_matched", "resolved") and c["new_status"] in ("needs_review", "unmatched")])
+    avg_conf_delta = round(sum(confidence_deltas) / len(confidence_deltas), 4) if confidence_deltas else 0
+
+    return JSONResponse({
+        "available": True,
+        "run_a": {"run_id": run_a["run_id"], "created_at": run_a["created_at"],
+                  "auto_matched": run_a["auto_matched"], "needs_review": run_a["needs_review"], "unmatched": run_a["unmatched"]},
+        "run_b": {"run_id": run_b["run_id"], "created_at": run_b["created_at"],
+                  "auto_matched": run_b["auto_matched"], "needs_review": run_b["needs_review"], "unmatched": run_b["unmatched"]},
+        "total_changes": len(changes),
+        "improved": improved,
+        "regressed": regressed,
+        "avg_confidence_delta": avg_conf_delta,
+        "status_transitions": [{"transition": k, "count": v} for k, v in status_transitions.most_common()],
+        "changes": changes[:100],
+    })
+
+
 # SPA catch-all: serve React app for non-API routes
 if STATIC_DIR.is_dir():
     @app.get("/{full_path:path}")

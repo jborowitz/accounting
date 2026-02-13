@@ -31,6 +31,14 @@ const sections = [
     ],
   },
   {
+    label: 'Operations',
+    links: [
+      { to: '/close', label: 'Month-End Close' },
+      { to: '/mappings', label: 'Carrier Mappings' },
+      { to: '/run-comparison', label: 'Run Comparison' },
+    ],
+  },
+  {
     label: 'Admin',
     links: [
       { to: '/exports', label: 'Exports' },

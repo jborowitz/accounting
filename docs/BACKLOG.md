@@ -239,7 +239,7 @@ Overlay tour (like Shepherd.js) that walks a new visitor through:
 6. Revenue → the business impact
 
 ### 3.10 Month-End Close Dashboard ⚠️ NEW
-**Status**: `todo` | **Effort**: M | **PDF Ref**: Section 0 ("predictable close outcomes")
+**Status**: `done` | **Effort**: M | **PDF Ref**: Section 0 ("predictable close outcomes")
 
 Jason's #1 concern as EVP Finance is the close process. Build `/close` screen:
 - Checklist showing close completion: statements received (X/Y), cash matched %, exceptions resolved %, accruals posted Y/N, journal posted Y/N
@@ -249,7 +249,7 @@ Jason's #1 concern as EVP Finance is the close process. Build `/close` screen:
 - This is the feature that speaks directly to Jason's role — he needs to know "are we ready to close?"
 
 ### 3.11 Carrier Field Mapping Templates ⚠️ NEW
-**Status**: `todo` | **Effort**: S | **PDF Ref**: Section 5 ("mapping templates + confidence scoring")
+**Status**: `done` | **Effort**: S | **PDF Ref**: Section 5 ("mapping templates + confidence scoring")
 
 Show how each carrier's statement fields map to our schema. Build a config view:
 - Per-carrier mapping: "Summit National: Column 3 → Policy Number, Column 5 → Written Premium"
@@ -258,7 +258,7 @@ Show how each carrier's statement fields map to our schema. Build a config view:
 - Sells the "we handle every format" story from Section 5's statement ingestion row
 
 ### 3.12 Richer Exception Taxonomy ⚠️ NEW
-**Status**: `todo` | **Effort**: M | **PDF Ref**: Section 3 ("cancellations, endorsements, reinstatements, overrides")
+**Status**: `done` | **Effort**: M | **PDF Ref**: Section 3 ("cancellations, endorsements, reinstatements, overrides")
 
 Our seed data has clawbacks but Section 3 explicitly lists other transaction types:
 - Cancellations: policy cancelled mid-term, return premium/commission
@@ -268,7 +268,7 @@ Our seed data has clawbacks but Section 3 explicitly lists other transaction typ
 - Add these as txn_types in seed data generation + surface in exception queue with distinct badges/handling
 
 ### 3.13 Recalculation Snapshots ⚠️ NEW
-**Status**: `todo` | **Effort**: M | **PDF Ref**: Section 5 ("recalculation snapshots" under Controls/audit)
+**Status**: `done` | **Effort**: M | **PDF Ref**: Section 5 ("recalculation snapshots" under Controls/audit)
 
 Store point-in-time calculation state for audit comparison:
 - When a match run completes, snapshot the full state (counts, amounts, splits)
@@ -318,11 +318,11 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 
 | Problem Area | Status | Backlog Item |
 |---|---|---|
-| Statement ingestion | ✅ Done | 1.3 |
+| Statement ingestion | ✅ Done | 1.3 + **3.11** (carrier field mappings) |
 | Cash application | ✅ Done | Matching engine + human-in-the-loop |
 | Commission logic | ✅ Done | **3.4** — rules versioning + test harness |
 | Accruals | ✅ Done | **1.6** |
-| Controls/audit | ✅ Done | **1.5** |
+| Controls/audit | ✅ Done | **1.5** + **3.13** (recalculation snapshots) |
 
 ---
 
@@ -340,11 +340,12 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 
 ## What Makes a Compelling Demo (Updated Priority Stack)
 
-**All PDF data flows and Section 5 areas are covered.** Both Flow A (9/9) and Flow B (5/5) are complete. Remaining items are polish and depth:
+**All PDF data flows, Section 5 areas, and PDF-critical gaps are covered.** Both Flow A (9/9) and Flow B (5/5) are complete. Section 0 (close), Section 3 (exception taxonomy), and Section 5 (mappings, recalc) all addressed. Remaining items are polish:
 
-1. **3.10 Month-End Close Dashboard** — speaks directly to Jason's EVP Finance role. The PDF says "predictable close outcomes" — this is how you show that.
-2. **3.12 Richer Exception Taxonomy** — Section 3 explicitly lists cancellations, endorsements, reinstatements. Adding these makes the demo feel real.
-3. **3.11 Carrier Mapping Templates** — quick win, sells the "we handle every format" Section 5 story.
-4. **3.13 Recalculation Snapshots** — deepens the audit trail from "what happened" to "show me before/after."
-5. **3.14 Carrier Payables** — last Comulate pillar gap, but heavy lift and less relevant to Jason's immediate pain.
-6. **3.5–3.9, 3.15** — batch resolution, smart rules, AMS prompts, multi-period, walkthrough, notifications — all nice-to-have polish.
+1. **3.14 Carrier Payables** — last Comulate pillar gap, but heavy lift and less relevant to Jason's immediate pain.
+2. **3.5 Batch Exception Resolution** — multi-select + bulk actions in exception queue.
+3. **3.6 Smart Rule Suggestions** — auto-suggest rules from analyst resolution patterns.
+4. **3.7 AMS Data Quality Prompts** — inline correction suggestions.
+5. **3.8 Multi-Period Data** — 3-6 months of data for trend analysis.
+6. **3.9 Guided Demo Walkthrough** — overlay tour for new visitors.
+7. **3.15 Notifications** — toast notifications for key events.

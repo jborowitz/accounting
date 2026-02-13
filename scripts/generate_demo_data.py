@@ -48,6 +48,10 @@ ISSUE_LEVELS = {
     "policy_typo":            ("L3", "medium"),
     "partial_payment":        ("L3", "high"),
     "clawback":               ("L3", "high"),
+    "cancellation":           ("L3", "high"),
+    "endorsement_adj":        ("L2", "medium"),
+    "reinstatement":          ("L3", "medium"),
+    "override":               ("L2", "low"),
     "missing_from_bank":      ("L4", "critical"),
     "batch_payment":          ("L4", "high"),
     "rate_discrepancy":       ("L4", "high"),
@@ -103,6 +107,15 @@ def generate(args: argparse.Namespace) -> None:
     }
     l4_assigned = {k: 0 for k in l4_budget}
 
+    # Counters for new Section 3 txn types (each gets ~5 cases)
+    s3_budget = {
+        "cancellation": 5,
+        "endorsement_adj": 5,
+        "reinstatement": 4,
+        "override": 4,
+    }
+    s3_assigned = {k: 0 for k in s3_budget}
+
     for i in range(1, n + 1):
         carrier = CARRIERS[i % len(CARRIERS)]
         st_id = f"STMT-{today:%Y%m}-{carrier.split()[0].upper()}-{(i - 1) // 27 + 1:02d}"
@@ -122,12 +135,16 @@ def generate(args: argparse.Namespace) -> None:
         is_exception = (i % exception_every == 0)
         if is_exception:
             status = "needs_review"
-            # Weighted choice: original 5 types + 4 new L4 types
+            # Weighted choice: original 5 types + L4 types + Section 3 types
             available_kinds = ["policy_typo", "name_variation", "timing_mismatch",
                                "partial_payment", "clawback"]
             # Add L4 types if budget remains
             for k, budget in l4_budget.items():
                 if l4_assigned[k] < budget:
+                    available_kinds.append(k)
+            # Add Section 3 types if budget remains
+            for k, budget in s3_budget.items():
+                if s3_assigned[k] < budget:
                     available_kinds.append(k)
 
             kind = rng.choice(available_kinds)
@@ -160,6 +177,25 @@ def generate(args: argparse.Namespace) -> None:
             elif kind == "carrier_name_mismatch":
                 carrier_name_mismatch_ids.add(line_id)
                 l4_assigned[kind] += 1
+            elif kind == "cancellation":
+                # Policy cancelled mid-term: negative commission (return)
+                commission = -abs(round(commission * rng.uniform(0.3, 0.8), 2))
+                txn_type = "cancellation"
+                s3_assigned[kind] += 1
+            elif kind == "endorsement_adj":
+                # Policy modified: small commission adjustment
+                commission = round(commission * rng.uniform(-0.15, 0.25), 2)
+                txn_type = "endorsement"
+                s3_assigned[kind] += 1
+            elif kind == "reinstatement":
+                # Lapsed policy reinstated: new commission line
+                txn_type = "reinstatement"
+                s3_assigned[kind] += 1
+            elif kind == "override":
+                # Management override: extra commission layer
+                commission = round(commission * rng.uniform(0.02, 0.08), 2)
+                txn_type = "override"
+                s3_assigned[kind] += 1
 
         statement_rows.append(
             {
