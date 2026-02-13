@@ -1,4 +1,6 @@
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import Walkthrough from './Walkthrough'
 
 const sections = [
   {
@@ -53,6 +55,19 @@ const sections = [
 ]
 
 export default function Layout() {
+  const [tourStep, setTourStep] = useState(null)
+
+  // Auto-start tour on first visit
+  useEffect(() => {
+    if (!localStorage.getItem('tour_seen')) {
+      setTourStep(0)
+      localStorage.setItem('tour_seen', '1')
+    }
+  }, [])
+
+  const startTour = () => setTourStep(0)
+  const closeTour = () => setTourStep(null)
+
   return (
     <div className="flex h-screen">
       <nav className="w-56 bg-gray-900 text-gray-300 flex flex-col flex-shrink-0">
@@ -92,13 +107,29 @@ export default function Layout() {
             </li>
           ))}
         </ul>
-        <div className="px-4 py-3 text-xs text-gray-500 border-t border-gray-700">
-          Demo &middot; jeffborowitz.com
+        <div className="px-4 py-3 border-t border-gray-700">
+          <button
+            onClick={startTour}
+            className="w-full px-3 py-1.5 text-xs font-medium text-blue-300 bg-blue-900/40 rounded hover:bg-blue-900/60 transition-colors mb-2"
+          >
+            Take a Tour
+          </button>
+          <div className="text-xs text-gray-500">
+            Demo &middot; jeffborowitz.com
+          </div>
         </div>
       </nav>
       <main className="flex-1 overflow-y-auto p-6">
         <Outlet />
       </main>
+
+      {tourStep != null && (
+        <Walkthrough
+          step={tourStep}
+          onStep={setTourStep}
+          onClose={closeTour}
+        />
+      )}
     </div>
   )
 }

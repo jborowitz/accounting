@@ -228,7 +228,7 @@ When statement data differs from AMS expected data, show inline prompt: "Carrier
 Generate 3-6 months of statement data (not just current month). Enable time-based filtering across all screens. Required for trend charts and aging analysis.
 
 ### 3.9 Guided Demo Walkthrough
-**Status**: `todo` | **Effort**: M
+**Status**: `done` | **Effort**: M
 
 Overlay tour (like Shepherd.js) that walks a new visitor through:
 1. Dashboard → see the problem scale
