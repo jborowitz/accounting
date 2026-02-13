@@ -238,12 +238,50 @@ Overlay tour (like Shepherd.js) that walks a new visitor through:
 5. Review → the "wow" moment (side-by-side)
 6. Revenue → the business impact
 
-### 3.10 Carrier Payables Simulation
+### 3.10 Month-End Close Dashboard ⚠️ NEW
+**Status**: `todo` | **Effort**: M | **PDF Ref**: Section 0 ("predictable close outcomes")
+
+Jason's #1 concern as EVP Finance is the close process. Build `/close` screen:
+- Checklist showing close completion: statements received (X/Y), cash matched %, exceptions resolved %, accruals posted Y/N, journal posted Y/N
+- Progress bar showing overall close readiness
+- Blocking items: "3 exceptions still open", "Summit National statement not received"
+- Historical close times: "Last month closed in 4 days"
+- This is the feature that speaks directly to Jason's role — he needs to know "are we ready to close?"
+
+### 3.11 Carrier Field Mapping Templates ⚠️ NEW
+**Status**: `todo` | **Effort**: S | **PDF Ref**: Section 5 ("mapping templates + confidence scoring")
+
+Show how each carrier's statement fields map to our schema. Build a config view:
+- Per-carrier mapping: "Summit National: Column 3 → Policy Number, Column 5 → Written Premium"
+- Field format variations: "Date format: MM/DD/YYYY", "Name format: Last, First"
+- Confidence thresholds per carrier
+- Sells the "we handle every format" story from Section 5's statement ingestion row
+
+### 3.12 Richer Exception Taxonomy ⚠️ NEW
+**Status**: `todo` | **Effort**: M | **PDF Ref**: Section 3 ("cancellations, endorsements, reinstatements, overrides")
+
+Our seed data has clawbacks but Section 3 explicitly lists other transaction types:
+- Cancellations: policy cancelled mid-term, return premium/commission
+- Endorsements: policy modified, commission adjustment
+- Reinstatements: lapsed policy reinstated, new commission
+- Overrides: management override commission (extra layer on top of producer split)
+- Add these as txn_types in seed data generation + surface in exception queue with distinct badges/handling
+
+### 3.13 Recalculation Snapshots ⚠️ NEW
+**Status**: `todo` | **Effort**: M | **PDF Ref**: Section 5 ("recalculation snapshots" under Controls/audit)
+
+Store point-in-time calculation state for audit comparison:
+- When a match run completes, snapshot the full state (counts, amounts, splits)
+- "Compare Run A vs Run B" view showing what changed between runs
+- Per-line: "This line was unmatched in run-001, auto_matched in run-002 because rule X was added"
+- Strengthens the audit trail story — not just "what happened" but "show me the before/after"
+
+### 3.14 Carrier Payables Simulation
 **Status**: `todo` | **Effort**: L
 
-Comulate's "industry first." Show outbound payments owed to carriers alongside inbound commissions. Would need new data generation for payable amounts + separate reconciliation flow.
+Comulate's "industry first." Show outbound payments owed to carriers alongside inbound commissions. Would need new data generation for payable amounts + separate reconciliation flow. Last remaining Comulate pillar gap.
 
-### 3.11 Notification System
+### 3.15 Notification System
 **Status**: `todo` | **Effort**: S
 
 Toast notifications for key events: match run complete, exceptions auto-resolved, new statement uploaded. Makes the app feel responsive and production-grade.
@@ -294,7 +332,7 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 |---|---|---|
 | **Direct Bill Automation** (statement parsing + auto-reconciliation) | Matching engine + Statements screen + Upload sim + Review view | ✅ Done |
 | **Cash Application** (bank-side matching) | Transactions screen + match status badges | ✅ Done |
-| **Carrier Payables** (outbound payments) | Not implemented | Gap → 3.10 |
+| **Carrier Payables** (outbound payments) | Not implemented | Gap → 3.14 |
 | **Revenue Intelligence** (variance + forecasting) | Revenue screen + carrier/LOB variance | ✅ Done |
 | **Revenue Integrity** (missing commission detection) | Clawback surfacing + exception taxonomy (L1-L4) + Aging analysis | ✅ Done |
 
@@ -302,11 +340,11 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 
 ## What Makes a Compelling Demo (Updated Priority Stack)
 
-Based on the PDF brief, the highest-impact remaining items are:
+**All PDF data flows and Section 5 areas are covered.** Both Flow A (9/9) and Flow B (5/5) are complete. Remaining items are polish and depth:
 
-1. **1.5 Audit Trail** — the PDF literally says "if Jeff nails the exception workflow and audit trail, Finance will adopt it." Exception workflow is done. Audit trail is the #1 gap.
-2. **1.6 Accrual & True-Up** — completes Flow A end-to-end. Shows we understand the full close cycle.
-3. **1.7 Journal/GL Output** — makes the output tangible. "Here's what gets posted to your GL."
-4. **2.2 Exports** — downloadable accrual, journal, and payout CSVs.
-5. **2.3 Dashboard Donut** — instant visual impact for demos.
-6. **3.1 Producer Compensation** — even simplified, shows Flow B awareness.
+1. **3.10 Month-End Close Dashboard** — speaks directly to Jason's EVP Finance role. The PDF says "predictable close outcomes" — this is how you show that.
+2. **3.12 Richer Exception Taxonomy** — Section 3 explicitly lists cancellations, endorsements, reinstatements. Adding these makes the demo feel real.
+3. **3.11 Carrier Mapping Templates** — quick win, sells the "we handle every format" Section 5 story.
+4. **3.13 Recalculation Snapshots** — deepens the audit trail from "what happened" to "show me before/after."
+5. **3.14 Carrier Payables** — last Comulate pillar gap, but heavy lift and less relevant to Jason's immediate pain.
+6. **3.5–3.9, 3.15** — batch resolution, smart rules, AMS prompts, multi-period, walkthrough, notifications — all nice-to-have polish.
