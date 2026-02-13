@@ -71,4 +71,20 @@ export const api = {
 
   // Producers
   getProducers: () => request('/api/v1/demo/producers'),
+
+  // Statement upload simulation
+  uploadStatement: (carrier) => {
+    const params = new URLSearchParams()
+    if (carrier) params.set('carrier', carrier)
+    return request(`/api/v1/demo/statements/upload?${params}`, { method: 'POST' })
+  },
+
+  // Aging / variance
+  getAging: () => request('/api/v1/demo/aging'),
+
+  // Carrier scorecard
+  getCarriers: () => request('/api/v1/demo/carriers'),
+
+  // Background reconciliation
+  backgroundResolve: (count = 3) => request(`/api/v1/demo/background-resolve?count=${count}`, { method: 'POST' }),
 }

@@ -13,6 +13,8 @@ import Accruals from './screens/Accruals'
 import Journal from './screens/Journal'
 import Exports from './screens/Exports'
 import Producers from './screens/Producers'
+import Aging from './screens/Aging'
+import Carriers from './screens/Carriers'
 
 const basename = import.meta.env.VITE_BASE_PATH || '/'
 
@@ -34,6 +36,8 @@ export default function App() {
           <Route path="journal" element={<Journal />} />
           <Route path="exports" element={<Exports />} />
           <Route path="producers" element={<Producers />} />
+          <Route path="aging" element={<Aging />} />
+          <Route path="carriers" element={<Carriers />} />
         </Route>
       </Routes>
     </BrowserRouter>

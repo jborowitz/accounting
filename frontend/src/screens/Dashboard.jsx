@@ -40,6 +40,8 @@ export default function Dashboard() {
   const [runs, setRuns] = useState([])
   const [running, setRunning] = useState(false)
   const [lastResult, setLastResult] = useState(null)
+  const [bgResolving, setBgResolving] = useState(false)
+  const [bgResult, setBgResult] = useState(null)
   const navigate = useNavigate()
 
   const load = useCallback(async () => {
@@ -65,13 +67,33 @@ export default function Dashboard() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-semibold">Dashboard</h2>
-        <button
-          onClick={runMatch}
-          disabled={running}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-        >
-          {running ? 'Running...' : 'Run Matching'}
-        </button>
+        <div className="flex items-center gap-2">
+          {runs.length > 0 && (
+            <button
+              onClick={async () => {
+                setBgResolving(true)
+                try {
+                  const r = await api.backgroundResolve(3)
+                  setBgResult(r)
+                  await load()
+                } finally {
+                  setBgResolving(false)
+                }
+              }}
+              disabled={bgResolving}
+              className="px-4 py-2 bg-teal-600 text-white rounded-lg text-sm font-medium hover:bg-teal-700 disabled:opacity-50"
+            >
+              {bgResolving ? 'Resolving...' : 'Background Recon'}
+            </button>
+          )}
+          <button
+            onClick={runMatch}
+            disabled={running}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+          >
+            {running ? 'Running...' : 'Run Matching'}
+          </button>
+        </div>
       </div>
 
       {summary && (
@@ -151,6 +173,18 @@ export default function Dashboard() {
           </div>
         ) : null
       })()}
+
+      {bgResult && (
+        <div className="mb-4 p-4 bg-teal-50 border border-teal-200 rounded-lg text-sm flex items-center justify-between">
+          <div>
+            <span className="font-medium text-teal-800">{bgResult.message}</span>
+            {bgResult.lines?.length > 0 && (
+              <span className="text-teal-600 ml-2">({bgResult.lines.join(', ')})</span>
+            )}
+          </div>
+          <button onClick={() => setBgResult(null)} className="text-teal-400 hover:text-teal-600 text-xs">dismiss</button>
+        </div>
+      )}
 
       {lastResult && (
         <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg text-sm">

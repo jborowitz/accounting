@@ -64,7 +64,7 @@ Map to Comulate's **Revenue Intelligence**. Build `/revenue`:
 - Needs `GET /api/v1/demo/revenue/summary` endpoint joining ams_expected + match_results
 
 ### 1.3 Statement Upload / Ingestion Simulation
-**Status**: `todo` | **Effort**: M
+**Status**: `done` | **Effort**: M
 
 Comulate's entry point is uploading a carrier statement. Simulate this:
 - Upload area on Statements screen (drag-and-drop a PDF)
@@ -123,7 +123,7 @@ Generate journal entries from resolved matches + accruals:
 ## P2 — Analytical & Export Features
 
 ### 2.1 Variance / Aging Analysis
-**Status**: `todo` | **Effort**: M
+**Status**: `done` | **Effort**: M
 
 - Unmatched amounts broken down by carrier and reason
 - Aging: how long has each exception been open (days since txn_date)
@@ -148,7 +148,7 @@ Add recharts (~40KB) donut chart showing match distribution:
 - Clickable segments that filter the match results view
 
 ### 2.4 Carrier Summary / Scorecard
-**Status**: `todo` | **Effort**: M
+**Status**: `done` | **Effort**: M
 
 Per-carrier view showing:
 - Total statements, lines, premium, commission
@@ -158,7 +158,7 @@ Per-carrier view showing:
 - Trend over time (if we add multiple months of data)
 
 ### 2.5 Background Reconciliation Simulation
-**Status**: `todo` | **Effort**: M
+**Status**: `done` | **Effort**: M
 
 Comulate touts "background reconciliation" — items auto-resolve over time. Simulate this:
 - After running matching, show a Triage counter that slowly ticks down
@@ -257,7 +257,7 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 | Step | Status | Backlog Item |
 |---|---|---|
 | Carrier/MGA Statement | ✅ Done | 36 PDFs, 3 carrier templates |
-| Statement Ingestion/Parsing | Partial | 1.3 (upload simulation) |
+| Statement Ingestion/Parsing | ✅ Done | 1.3 (upload simulation) |
 | Bank Feed | ✅ Done | Transactions screen |
 | Cash Ingestion/Normalization | ✅ Done | Bank feed loaded |
 | Matching Engine | ✅ Done | Greedy best-match scoring |
@@ -280,7 +280,7 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 
 | Problem Area | Status | Backlog Item |
 |---|---|---|
-| Statement ingestion | Partial | 1.3 |
+| Statement ingestion | ✅ Done | 1.3 |
 | Cash application | ✅ Done | Matching engine + human-in-the-loop |
 | Commission logic | ❌ Gap | **3.4 (new)** — rules versioning + test harness |
 | Accruals | ✅ Done | **1.6** |
@@ -292,11 +292,11 @@ Toast notifications for key events: match run complete, exceptions auto-resolved
 
 | Comulate Module | Our Equivalent | Status |
 |---|---|---|
-| **Direct Bill Automation** (statement parsing + auto-reconciliation) | Matching engine + Statements screen + Review view | ✅ Core done — no upload/parsing simulation yet (1.3) |
+| **Direct Bill Automation** (statement parsing + auto-reconciliation) | Matching engine + Statements screen + Upload sim + Review view | ✅ Done |
 | **Cash Application** (bank-side matching) | Transactions screen + match status badges | ✅ Done |
 | **Carrier Payables** (outbound payments) | Not implemented | Gap → 3.10 |
 | **Revenue Intelligence** (variance + forecasting) | Revenue screen + carrier/LOB variance | ✅ Done |
-| **Revenue Integrity** (missing commission detection) | Clawback surfacing + exception taxonomy (L1-L4) | ✅ Done — aging analysis pending (2.1) |
+| **Revenue Integrity** (missing commission detection) | Clawback surfacing + exception taxonomy (L1-L4) + Aging analysis | ✅ Done |
 
 ---
 

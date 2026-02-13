@@ -873,6 +873,330 @@ def api_producers() -> JSONResponse:
     return JSONResponse({"producers": producers, "totals": totals})
 
 
+# ---------------------------------------------------------------------------
+# Statement upload simulation
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/demo/statements/upload")
+def api_upload_statement(carrier: str | None = None) -> JSONResponse:
+    """Simulate statement upload + AI parsing. Returns pre-loaded lines for the carrier."""
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+
+    # Pick a carrier to simulate (default to first available or specified)
+    carriers = sorted(set(r["carrier_name"] for r in stmt_rows))
+    if carrier and carrier in carriers:
+        target_carrier = carrier
+    else:
+        import random
+        target_carrier = random.choice(carriers) if carriers else "Summit National"
+
+    # Get lines for one statement from this carrier
+    carrier_lines = [r for r in stmt_rows if r["carrier_name"] == target_carrier]
+    # Group by statement_id and pick one
+    grouped: dict[str, list] = {}
+    for r in carrier_lines:
+        grouped.setdefault(r["statement_id"], []).append(r)
+
+    import random as rng
+    stmt_id = rng.choice(list(grouped.keys())) if grouped else ""
+    lines = grouped.get(stmt_id, [])
+
+    # Simulate extraction with confidence scores
+    extracted = []
+    for row in lines:
+        conf = rng.uniform(0.82, 0.99)
+        # Occasionally lower confidence for "hard to parse" fields
+        field_confs = {
+            "policy_number": round(rng.uniform(0.85, 1.0), 2),
+            "insured_name": round(rng.uniform(0.70, 0.99), 2),
+            "written_premium": round(rng.uniform(0.90, 1.0), 2),
+            "gross_commission": round(rng.uniform(0.88, 1.0), 2),
+            "effective_date": round(rng.uniform(0.80, 1.0), 2),
+        }
+        extracted.append({
+            **row,
+            "extraction_confidence": round(conf, 2),
+            "field_confidences": field_confs,
+        })
+
+    log_audit_event(
+        DB_PATH, event_type="statement_upload", action="parsed",
+        entity_type="statement", entity_id=stmt_id, actor="analyst",
+        detail=f"Uploaded {target_carrier} statement, extracted {len(extracted)} lines",
+    )
+
+    return JSONResponse({
+        "ok": True,
+        "carrier": target_carrier,
+        "statement_id": stmt_id,
+        "lines_extracted": len(extracted),
+        "avg_confidence": round(sum(e["extraction_confidence"] for e in extracted) / len(extracted), 2) if extracted else 0,
+        "extracted_lines": extracted,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Variance / Aging analysis
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/aging")
+def api_aging() -> JSONResponse:
+    """Variance and aging analysis: unmatched by carrier, reason, and age buckets."""
+    from datetime import date
+
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    cases = read_case_manifest(DATA_DIR / "demo_cases/case_manifest.csv")
+    case_lookup = {c["line_id"]: c for c in cases}
+
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_map: dict[str, dict] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT line_id, status, reason, confidence
+                   FROM match_results WHERE run_id = ?""",
+                (run_id,),
+            ).fetchall()
+            match_map = {r["line_id"]: dict(r) for r in rows}
+
+    today = date.today()
+    buckets = {"0-7d": 0, "8-30d": 0, "31-60d": 0, "60+d": 0}
+    bucket_amounts = {"0-7d": 0.0, "8-30d": 0.0, "31-60d": 0.0, "60+d": 0.0}
+    by_carrier: dict[str, dict] = {}
+    by_reason: dict[str, dict] = {}
+    open_items = []
+
+    for stmt in stmt_rows:
+        mr = match_map.get(stmt["line_id"], {})
+        status = mr.get("status", "unknown")
+        if status in ("auto_matched", "resolved"):
+            continue
+
+        commission = abs(float(stmt.get("gross_commission", 0)))
+        carrier = stmt["carrier_name"]
+        case = case_lookup.get(stmt["line_id"], {})
+        reason = mr.get("reason", case.get("expected_reason", "unknown"))
+        level = case.get("level", "L1")
+        severity = case.get("severity", "low")
+
+        # Calculate age from txn_date
+        try:
+            txn_date = date.fromisoformat(stmt.get("txn_date", "")[:10])
+            age_days = (today - txn_date).days
+        except (ValueError, TypeError):
+            age_days = 0
+
+        if age_days <= 7:
+            bucket = "0-7d"
+        elif age_days <= 30:
+            bucket = "8-30d"
+        elif age_days <= 60:
+            bucket = "31-60d"
+        else:
+            bucket = "60+d"
+
+        buckets[bucket] += 1
+        bucket_amounts[bucket] += commission
+
+        # By carrier
+        if carrier not in by_carrier:
+            by_carrier[carrier] = {"count": 0, "amount": 0.0}
+        by_carrier[carrier]["count"] += 1
+        by_carrier[carrier]["amount"] += commission
+
+        # By reason
+        base_reason = reason.split(",")[0] if reason else "unknown"
+        if base_reason not in by_reason:
+            by_reason[base_reason] = {"count": 0, "amount": 0.0}
+        by_reason[base_reason]["count"] += 1
+        by_reason[base_reason]["amount"] += commission
+
+        open_items.append({
+            "line_id": stmt["line_id"],
+            "policy_number": stmt["policy_number"],
+            "carrier_name": carrier,
+            "insured_name": stmt.get("insured_name", ""),
+            "commission": round(commission, 2),
+            "txn_date": stmt.get("txn_date", ""),
+            "age_days": age_days,
+            "bucket": bucket,
+            "reason": base_reason,
+            "level": level,
+            "severity": severity,
+            "status": status,
+            "confidence": mr.get("confidence", 0),
+        })
+
+    # Sort by age descending
+    open_items.sort(key=lambda x: x["age_days"], reverse=True)
+
+    return JSONResponse({
+        "total_open": len(open_items),
+        "total_amount": round(sum(i["commission"] for i in open_items), 2),
+        "buckets": {k: {"count": buckets[k], "amount": round(bucket_amounts[k], 2)} for k in buckets},
+        "by_carrier": [
+            {"carrier": k, "count": v["count"], "amount": round(v["amount"], 2)}
+            for k, v in sorted(by_carrier.items())
+        ],
+        "by_reason": [
+            {"reason": k, "count": v["count"], "amount": round(v["amount"], 2)}
+            for k, v in sorted(by_reason.items(), key=lambda x: x[1]["amount"], reverse=True)
+        ],
+        "items": open_items,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Carrier scorecard
+# ---------------------------------------------------------------------------
+
+@app.get("/api/v1/demo/carriers")
+def api_carrier_scorecard() -> JSONResponse:
+    """Per-carrier summary: statements, lines, premium, commission, match rate, exceptions."""
+    stmt_rows = _read_csv(DATA_DIR / "raw/statements/statement_lines.csv")
+    cases = read_case_manifest(DATA_DIR / "demo_cases/case_manifest.csv")
+    case_lookup = {c["line_id"]: c for c in cases}
+
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    match_map: dict[str, dict] = {}
+    if run_id:
+        with get_conn(DB_PATH) as conn:
+            rows = conn.execute(
+                """SELECT line_id, status, reason, confidence
+                   FROM match_results WHERE run_id = ?""",
+                (run_id,),
+            ).fetchall()
+            match_map = {r["line_id"]: dict(r) for r in rows}
+
+    carrier_data: dict[str, dict] = {}
+    for stmt in stmt_rows:
+        c = stmt["carrier_name"]
+        if c not in carrier_data:
+            carrier_data[c] = {
+                "carrier": c,
+                "statements": set(),
+                "lines": 0,
+                "total_premium": 0.0,
+                "total_commission": 0.0,
+                "auto_matched": 0,
+                "needs_review": 0,
+                "unmatched": 0,
+                "resolved": 0,
+                "clawbacks": 0,
+                "clawback_amount": 0.0,
+                "confidence_sum": 0.0,
+                "confidence_count": 0,
+                "exception_reasons": Counter(),
+            }
+        cd = carrier_data[c]
+        cd["statements"].add(stmt["statement_id"])
+        cd["lines"] += 1
+        cd["total_premium"] += float(stmt.get("written_premium", 0))
+        cd["total_commission"] += float(stmt.get("gross_commission", 0))
+
+        if stmt.get("txn_type") == "clawback":
+            cd["clawbacks"] += 1
+            cd["clawback_amount"] += float(stmt.get("gross_commission", 0))
+
+        mr = match_map.get(stmt["line_id"], {})
+        status = mr.get("status", "unknown")
+        if status == "auto_matched":
+            cd["auto_matched"] += 1
+        elif status == "needs_review":
+            cd["needs_review"] += 1
+        elif status == "resolved":
+            cd["resolved"] += 1
+        elif status == "unmatched":
+            cd["unmatched"] += 1
+
+        if mr.get("confidence"):
+            cd["confidence_sum"] += mr["confidence"]
+            cd["confidence_count"] += 1
+
+        if status in ("needs_review", "unmatched"):
+            case = case_lookup.get(stmt["line_id"], {})
+            reason = mr.get("reason", case.get("expected_reason", "unknown")).split(",")[0]
+            cd["exception_reasons"][reason] += 1
+
+    carriers = []
+    for cd in sorted(carrier_data.values(), key=lambda x: x["total_commission"], reverse=True):
+        total = cd["auto_matched"] + cd["needs_review"] + cd["unmatched"] + cd["resolved"]
+        matched = cd["auto_matched"] + cd["resolved"]
+        carriers.append({
+            "carrier": cd["carrier"],
+            "statements": len(cd["statements"]),
+            "lines": cd["lines"],
+            "total_premium": round(cd["total_premium"], 2),
+            "total_commission": round(cd["total_commission"], 2),
+            "auto_matched": cd["auto_matched"],
+            "needs_review": cd["needs_review"],
+            "unmatched": cd["unmatched"],
+            "resolved": cd["resolved"],
+            "match_rate": round(matched / total * 100, 1) if total else 0,
+            "avg_confidence": round(cd["confidence_sum"] / cd["confidence_count"], 3) if cd["confidence_count"] else 0,
+            "clawbacks": cd["clawbacks"],
+            "clawback_amount": round(cd["clawback_amount"], 2),
+            "top_exceptions": [
+                {"reason": r, "count": c}
+                for r, c in cd["exception_reasons"].most_common(5)
+            ],
+        })
+
+    return JSONResponse({"carriers": carriers})
+
+
+# ---------------------------------------------------------------------------
+# Background reconciliation simulation
+# ---------------------------------------------------------------------------
+
+@app.post("/api/v1/demo/background-resolve")
+def api_background_resolve(count: int = 3) -> JSONResponse:
+    """Auto-resolve the highest-confidence open exceptions (simulating background recon)."""
+    from app.persistence import latest_run_id, get_conn
+    run_id = latest_run_id(DB_PATH)
+    if not run_id:
+        return JSONResponse({"ok": False, "resolved": 0, "message": "No match run found"})
+
+    with get_conn(DB_PATH) as conn:
+        # Find highest-confidence open exceptions
+        candidates = conn.execute(
+            """SELECT e.line_id, r.confidence, r.matched_bank_txn_id
+               FROM exceptions e
+               JOIN match_results r ON e.run_id = r.run_id AND e.line_id = r.line_id
+               WHERE e.run_id = ? AND e.status = 'open'
+               ORDER BY r.confidence DESC
+               LIMIT ?""",
+            (run_id, count),
+        ).fetchall()
+
+    resolved_lines = []
+    for c in candidates:
+        row = resolve_exception(
+            DB_PATH,
+            line_id=c["line_id"],
+            resolution_action="auto_resolved",
+            resolved_bank_txn_id=c["matched_bank_txn_id"],
+            resolution_note=f"Background reconciliation (confidence: {c['confidence']:.1%})",
+        )
+        if row:
+            resolved_lines.append(c["line_id"])
+            log_audit_event(
+                DB_PATH, event_type="background_recon", action="auto_resolved",
+                entity_type="line", entity_id=c["line_id"], actor="system",
+                detail=f"Auto-resolved at {c['confidence']:.1%} confidence",
+                old_value="open", new_value="resolved",
+            )
+
+    return JSONResponse({
+        "ok": True,
+        "resolved": len(resolved_lines),
+        "lines": resolved_lines,
+        "message": f"{len(resolved_lines)} exceptions auto-resolved by background reconciliation",
+    })
+
+
 @app.get("/api/v1/demo/statements")
 def api_list_statements() -> JSONResponse:
     rows = list_statement_metadata(DB_PATH)
